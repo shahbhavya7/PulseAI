@@ -7,6 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
     "sqlalchemy>=2.0.35",
     "alembic>=1.13",
     "psycopg[binary]>=3.2",
@@ -14,6 +15,11 @@ dependencies = [
     "redis>=5.2",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    # ---- Phase 1: ingestion ----
+    "pandas>=2.2",
+    "pdfplumber>=0.11",
+    "langdetect>=1.0.9",
+    "charset-normalizer>=3.4",
 ]
 
 [project.optional-dependencies]
@@ -44,7 +50,8 @@ ignore = ["B008"]  # FastAPI Depends() in defaults is idiomatic
 known-first-party = ["app"]
 
 [tool.mypy]
-python_version = "3.11"
+# Matches the runtime env (3.12); numpy's bundled stubs use 3.12 `type` syntax.
+python_version = "3.12"
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
 packages = ["app"]
@@ -54,7 +61,7 @@ disallow_untyped_defs = true
 no_implicit_optional = true
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*"]
+module = ["pgvector.*", "pdfplumber.*", "langdetect.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

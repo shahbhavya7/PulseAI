@@ -30,6 +30,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.env,
         __version__,
     )
+    # Best-effort dev-user seed (Phase 1 auth stub). Never fatal: if the DB is
+    # not reachable at startup the app still boots and /health stays green.
+    try:
+        from app.db.seed import ensure_dev_user
+        from app.db.session import get_sessionmaker
+
+        with get_sessionmaker()() as db:
+            ensure_dev_user(db)
+    except Exception as exc:  # noqa: BLE001 — startup seed must not crash boot
+        logger.warning("Dev-user seed skipped: %s", exc)
     yield
     logger.info("Shutting down %s", settings.project_name)
 

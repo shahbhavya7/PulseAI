@@ -25,3 +25,12 @@ def client() -> Iterator[TestClient]:
     """A TestClient bound to the application, with lifespan events run."""
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def require_db() -> None:
+    """Skip a test when no Postgres is reachable (keeps the suite hermetic)."""
+    from app.db.session import ping_db
+
+    if not ping_db():
+        pytest.skip("Postgres not available; skipping DB-backed test")

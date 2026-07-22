@@ -6,5 +6,6 @@ services (triage, summarization, chat) land in later phases.
 """
 
 from app.services.health import HealthService
+from app.services.ingestion import IngestionService
 
-__all__ = ["HealthService"]
+__all__ = ["HealthService", "IngestionService"]

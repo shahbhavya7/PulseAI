@@ -97,3 +97,23 @@ class ChatRole(StrEnum):
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
+
+
+class IssueFlag(StrEnum):
+    """Machine annotations attached to an issue during ingestion.
+
+    Persisted as strings in :attr:`app.models.issue.Issue.flags`.
+    """
+
+    # Parser-level
+    SCANNED_PDF = "scanned_pdf"  # no extractable text → likely image scan
+    ENCODING_RECOVERED = "encoding_recovered"  # decoded via non-UTF-8 fallback
+    # Boundary
+    NEEDS_MANUAL_SPLIT = "needs_manual_split"  # multiple customers, unclear split
+    # Cleaning
+    BOILERPLATE_STRIPPED = "boilerplate_stripped"
+    PII_REDACTED = "pii_redacted"
+    LANGUAGE_UNKNOWN = "language_unknown"
+    # Content quality
+    ONE_WORD = "one_word"
+    JUNK = "junk"
