@@ -1,0 +1,38 @@
+# Local infrastructure for PulseAI: PostgreSQL (with pgvector) and Redis.
+# Credentials come from .env (see .env.example); nothing is hardcoded here
+# beyond local-dev defaults that .env overrides.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_USER: ${PULSE_POSTGRES_USER:-pulse}
+      POSTGRES_PASSWORD: ${PULSE_POSTGRES_PASSWORD:-pulse}
+      POSTGRES_DB: ${PULSE_POSTGRES_DB:-pulse}
+    ports:
+      - "${PULSE_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pulse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PULSE_POSTGRES_USER:-pulse} -d ${PULSE_POSTGRES_DB:-pulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - pulse_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pulse_pgdata:
+  pulse_redisdata:
