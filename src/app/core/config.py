@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     # Embedding model (Phase 3). 1536 dims matches app.models.issue.EMBEDDING_DIM.
     openai_embedding_model: str = "text-embedding-3-small"
 
+    # ---- Phase 6: chat (hybrid retrieval + cross-session memory) ----
+    # How many semantically-relevant issue examples to retrieve per question.
+    chat_retrieval_k: int = 6
+    # How many of the user's prior session summaries to recall on a new session.
+    chat_memory_k: int = 3
+    # Recent transcript turns kept in the prompt window (older turns are dropped;
+    # durable facts survive via the session summary memory).
+    chat_history_window: int = 12
+    # A session with no new message for this long is "idle" and eligible for the
+    # summary sweep.
+    chat_idle_minutes: int = 30
+
     # ---- Phase 5: auth (Google / Apple OIDC) ----
     # Signs the session JWT stored in the httpOnly cookie. MUST be set in any
     # non-local environment; a dev default keeps local boot working.
@@ -117,6 +129,10 @@ class Settings(BaseSettings):
     backend_base_url: str = "http://localhost:8000"
     frontend_base_url: str = "http://localhost:3000"
     oauth_state_secret: SecretStr = SecretStr("dev-insecure-state-change-me")
+
+    # Email + password sign-in. On by default so the app is usable without any
+    # OAuth setup; set PULSE_EMAIL_LOGIN_ENABLED=false to force OAuth-only.
+    email_login_enabled: bool = True
 
     # Google OIDC. Both must be set for the Google button to work.
     google_client_id: str | None = None

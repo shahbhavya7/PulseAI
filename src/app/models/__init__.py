@@ -20,6 +20,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.issue import Issue
+from app.models.session_summary import SessionSummary
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.models.weekly_summary import WeeklySummary
@@ -34,6 +35,7 @@ __all__ = [
     "IssueFlag",
     "IssueSeverity",
     "IssueStatus",
+    "SessionSummary",
     "SummaryStatus",
     "Ticket",
     "TicketPriority",

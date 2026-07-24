@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+import bcrypt
 import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -40,6 +41,19 @@ class AuthError(Exception):
 
     def __init__(self, message: str = "Not authenticated") -> None:
         super().__init__(message)
+        self.message = message
+
+
+class CredentialsError(Exception):
+    """Raised for bad email/password login or registration conflicts.
+
+    Carries a machine ``code`` so routes can map it to the right HTTP status
+    without leaking whether an email exists (login always says the same thing).
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
         self.message = message
 
 
@@ -180,4 +194,77 @@ def upsert_oauth_user(
     db.commit()
     db.refresh(user)
     logger.info("Created user id=%s via %s", user.id, provider)
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Email + password
+# ---------------------------------------------------------------------------
+
+MIN_PASSWORD_LENGTH = 8
+
+
+def hash_password(password: str) -> str:
+    """Hash a plaintext password with bcrypt (per-hash random salt)."""
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """Constant-time check of a plaintext password against a stored hash."""
+    try:
+        return bcrypt.checkpw(password.encode(), password_hash.encode())
+    except ValueError:
+        # Malformed/legacy hash → treat as no match rather than crashing.
+        return False
+
+
+def register_user(
+    db: Session, *, email: str, password: str, full_name: str | None
+) -> User:
+    """Create a new email/password user.
+
+    Raises :class:`CredentialsError` if the password is too short or the email is
+    already registered.
+    """
+    email = email.strip().lower()
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise CredentialsError(
+            "weak_password",
+            f"Password must be at least {MIN_PASSWORD_LENGTH} characters.",
+        )
+
+    existing = db.scalar(select(User).where(User.email == email))
+    if existing is not None:
+        raise CredentialsError("email_taken", "That email is already registered.")
+
+    user = User(
+        email=email,
+        full_name=full_name,
+        role=UserRole.MEMBER,
+        is_active=True,
+        password_hash=hash_password(password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    logger.info("Registered user id=%s via email", user.id)
+    return user
+
+
+def authenticate_user(db: Session, *, email: str, password: str) -> User:
+    """Return the user for valid email/password, else raise ``CredentialsError``.
+
+    The same error is raised whether the email is unknown, has no password set
+    (OAuth-only account), or the password is wrong — so login never reveals which
+    emails exist.
+    """
+    email = email.strip().lower()
+    user = db.scalar(select(User).where(User.email == email))
+    invalid = CredentialsError("invalid_credentials", "Incorrect email or password.")
+    if user is None or not user.password_hash:
+        raise invalid
+    if not verify_password(password, user.password_hash):
+        raise invalid
+    if not user.is_active:
+        raise CredentialsError("inactive", "This account is disabled.")
     return user

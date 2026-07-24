@@ -40,6 +40,10 @@ class User(Base, TimestampMixin):
     oauth_provider: Mapped[str | None] = mapped_column(String(32))
     oauth_subject: Mapped[str | None] = mapped_column(String(255), index=True)
 
+    # ---- Phase 5: email + password identity ----
+    # bcrypt hash; None for OAuth-only accounts (they never set a password).
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+
     # back_populates="owner": Ticket holds the foreign key to User; this side is
     # the reverse of that relationship. cascade="all, delete-orphan": deleting a
     # user also deletes all of their tickets.

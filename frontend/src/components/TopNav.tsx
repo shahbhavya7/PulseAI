@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Activity, LayoutDashboard, LogOut, Ticket, UploadCloud } from "lucide-react";
+import {
+  Activity,
+  LayoutDashboard,
+  LogOut,
+  MessagesSquare,
+  Ticket,
+  UploadCloud,
+} from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/button";
@@ -44,6 +51,9 @@ export function TopNav() {
           </NavLink>
           <NavLink href="/tickets" icon={<Ticket />} labelClassName="hidden sm:inline">
             Tickets
+          </NavLink>
+          <NavLink href="/chat" icon={<MessagesSquare />} labelClassName="hidden sm:inline">
+            Chat
           </NavLink>
           <NavLink href="/upload" icon={<UploadCloud />} labelClassName="hidden sm:inline">
             Upload

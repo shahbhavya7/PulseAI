@@ -172,4 +172,26 @@ export interface CurrentUser {
 
 export interface ProvidersResponse {
   providers: string[];
+  email: boolean;
+}
+
+// ---- Chat (Phase 6) --------------------------------------------------------
+
+export interface ChatMessageOut {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+}
+
+export interface ChatSessionOut {
+  id: string;
+  title: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatSessionDetail extends ChatSessionOut {
+  messages: ChatMessageOut[];
 }

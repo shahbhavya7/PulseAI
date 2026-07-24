@@ -22,11 +22,12 @@ dependencies = [
     "charset-normalizer>=3.4",
     # ---- Phase 2: AI pipeline ----
     "openai>=1.60",
-    # ---- Phase 5: auth (Google/Apple OIDC) ----
+    # ---- Phase 5: auth (Google/Apple OIDC + email/password) ----
     "authlib>=1.3",
     "pyjwt[crypto]>=2.9",
     "itsdangerous>=2.2",
     "httpx>=0.27",
+    "bcrypt>=4.2",
 ]
 
 [project.optional-dependencies]

@@ -1,9 +1,15 @@
-# Phase 5 — Authentication (Google / Apple OIDC)
+# Phase 5 — Authentication (Google / Apple OIDC + email/password)
 
-Replaces the Phase 1 dev-user stub (`X-User-Id` header) with **real sign-in**
-via Google and Apple (OpenID Connect). After a successful login the backend
-issues a signed **session JWT in an httpOnly cookie**; every route resolves the
-acting user from that cookie and scopes all data to them.
+Replaces the Phase 1 dev-user stub (`X-User-Id` header) with **real sign-in**:
+Google and Apple (OpenID Connect) **and** email + password. After a successful
+login the backend issues a signed **session JWT in an httpOnly cookie**; every
+route resolves the acting user from that cookie and scopes all data to them.
+
+Email sign-in exists so the app is usable with zero OAuth setup, and so the
+existing local data (owned by the legacy `dev@pulseai.local` user) stays
+reachable — migration 0005 gives that user a password (`PULSE_DEV_PASSWORD`,
+default `pulseai-dev`), so signing in with those credentials lands on all the
+current tickets/summaries.
 
 ## Where things live
 
@@ -11,14 +17,15 @@ acting user from that cookie and scopes all data to them.
 
 | File | Holds |
 | --- | --- |
-| [src/app/core/config.py](../src/app/core/config.py) | auth settings: `jwt_secret`, cookie flags, base URLs, Google/Apple creds; `google_enabled`/`apple_enabled` |
-| [src/app/models/user.py](../src/app/models/user.py) | `oauth_provider` + `oauth_subject` columns; unique `(provider, subject)` |
-| [alembic/versions/0004_user_oauth_identity.py](../alembic/versions/0004_user_oauth_identity.py) | migration for the above |
-| [src/app/services/auth.py](../src/app/services/auth.py) | session JWTs (`issue`/`decode`), cookie set/clear, `upsert_oauth_user` |
+| [src/app/core/config.py](../src/app/core/config.py) | auth settings: `jwt_secret`, cookie flags, base URLs, Google/Apple creds, `email_login_enabled`; `google_enabled`/`apple_enabled` |
+| [src/app/models/user.py](../src/app/models/user.py) | `oauth_provider` + `oauth_subject` + `password_hash` columns; unique `(provider, subject)` |
+| [alembic/versions/0004_user_oauth_identity.py](../alembic/versions/0004_user_oauth_identity.py) | OAuth-identity migration |
+| [alembic/versions/0005_user_password_hash.py](../alembic/versions/0005_user_password_hash.py) | `password_hash` column + sets the dev user's password |
+| [src/app/services/auth.py](../src/app/services/auth.py) | session JWTs, cookie set/clear, `upsert_oauth_user`, `hash_password`/`verify_password`, `register_user`/`authenticate_user` |
 | [src/app/services/oauth.py](../src/app/services/oauth.py) | Authlib registry; Google + Apple (config-gated); Apple client-secret JWT |
-| [src/app/api/routes/auth.py](../src/app/api/routes/auth.py) | `/auth/providers`, `/auth/login/{p}`, `/auth/callback/{p}`, `/auth/me`, `/auth/logout` |
+| [src/app/api/routes/auth.py](../src/app/api/routes/auth.py) | `/auth/providers`, `/auth/register`, `/auth/login/email`, `/auth/login/{p}`, `/auth/callback/{p}`, `/auth/me`, `/auth/logout` |
 | [src/app/api/deps.py](../src/app/api/deps.py) | `get_current_user` — reads the session cookie → `User` (401 otherwise) |
-| [src/app/schemas/auth.py](../src/app/schemas/auth.py) | `CurrentUserResponse`, `ProvidersResponse` |
+| [src/app/schemas/auth.py](../src/app/schemas/auth.py) | `CurrentUserResponse`, `ProvidersResponse`, `RegisterRequest`, `LoginRequest` |
 | [src/app/main.py](../src/app/main.py) | `SessionMiddleware` (OAuth state) + auth router; dev-seed removed |
 | [tests/test_auth.py](../tests/test_auth.py) | JWT round-trip, endpoint 401s, provisioning, isolation |
 | [tests/conftest.py](../tests/conftest.py) | `as_user` fixture (dependency override) + per-test in-memory AI cache |
@@ -61,6 +68,29 @@ a short-lived ES256 JWT from the `.p8` key on each request.
 Any failure (denied consent, state mismatch, missing claims) redirects to
 `/signin?error=…` — never a 500.
 
+### 2b. Email + password sign-in
+
+Enabled by default (`email_login_enabled`); `GET /auth/providers` reports it via
+`{"email": true}` so the sign-in page can show the form.
+
+- `POST /auth/register` `{email, password, full_name?}` — `register_user` hashes
+  the password with **bcrypt** (`hash_password`), rejects a weak password
+  (schema enforces ≥8 chars → 422) or a duplicate email (`email_taken` → 409),
+  creates the user, then sets the session cookie and returns the user (201).
+- `POST /auth/login/email` `{email, password}` — `authenticate_user` looks up the
+  email and checks the hash with `verify_password`. Unknown email, no password
+  set (OAuth-only account), or a wrong password all raise the **same**
+  `invalid_credentials` → **401**, so login never reveals which emails exist.
+  Success sets the session cookie and returns the user (200).
+
+Both mint the same session JWT cookie as the OAuth flow, so everything
+downstream (`get_current_user`, isolation) is identical regardless of how you
+signed in. When `email_login_enabled` is false, both routes 404.
+
+**Reaching the existing data:** migration 0005 sets a password on
+`dev@pulseai.local` (the legacy owner of the current local tickets). Sign in
+with that email + `PULSE_DEV_PASSWORD` (default `pulseai-dev`) to land on it.
+
 ### 3. Session + `get_current_user`
 
 `issue_session_token` signs `{sub: user_id, email, iat, exp}` (HS256,
@@ -85,16 +115,25 @@ are no chat endpoints yet; the chat models will scope the same way when added.)
 `401` to a global handler. `AuthProvider` loads `/auth/me` once and shares
 `user`; `AuthGuard` shows a spinner while loading and redirects to `/signin` when
 signed out. `TopNav` shows the avatar/name and a sign-out button (`POST
-/auth/logout` clears the cookie). The sign-in page reads `?error=` for friendly
-messages on denied/failed auth.
+/auth/logout` clears the cookie). The sign-in page offers the **email/password
+form** (with a login ↔ create-account toggle) plus any OAuth buttons; on success
+it calls `refresh()` so the guard forwards to the dashboard. It reads `?error=`
+for friendly messages on denied/failed OAuth. `loginEmail`/`registerEmail` post
+JSON and rely on the cookie the backend sets.
 
 ## Per-function reference
 
 ### services/auth.py
-- `AuthError` — raised for missing/bad/expired session tokens.
+- `AuthError` — missing/bad/expired session token. `CredentialsError(code,
+  message)` — bad email/password or registration conflict.
 - `issue_session_token(user)` / `decode_session_token(token) -> UUID`.
 - `set_session_cookie(response, user)` / `clear_session_cookie(response)`.
 - `upsert_oauth_user(db, *, provider, subject, email, full_name) -> User`.
+- `hash_password(pw)` / `verify_password(pw, hash)` — bcrypt.
+- `register_user(db, *, email, password, full_name) -> User` — weak-password /
+  duplicate-email guards.
+- `authenticate_user(db, *, email, password) -> User` — uniform
+  `invalid_credentials` on any failure.
 
 ### services/oauth.py
 - `get_oauth()` — cached Authlib `OAuth` registry (enabled providers only).
@@ -102,8 +141,9 @@ messages on denied/failed auth.
 - `enabled_providers() -> list[str]`.
 
 ### api/routes/auth.py
-- `list_providers`, `login`, `callback`, `me`, `logout`; helpers `_redirect_uri`,
-  `_frontend`, `_apple_name`.
+- `list_providers`, `register`, `login_email`, `login`, `callback`, `me`,
+  `logout`; helpers `_redirect_uri`, `_frontend`, `_apple_name`,
+  `_session_response`.
 
 ### api/deps.py
 - `get_current_user(db, session cookie) -> User`; `CurrentUser`, `DbSession`.
@@ -112,39 +152,40 @@ messages on denied/failed auth.
 
 ### Prereqs
 
-Configure Google (see the README's provider-setup section) in `.env`:
-
-```bash
-PULSE_JWT_SECRET=<random>
-PULSE_OAUTH_STATE_SECRET=<random>
-PULSE_GOOGLE_CLIENT_ID=<...>.apps.googleusercontent.com
-PULSE_GOOGLE_CLIENT_SECRET=<...>
-```
-
-Bring everything up:
+Email sign-in needs **no OAuth setup** — just the session secrets (a dev default
+exists, but set real ones for anything shared). Google is optional (README's
+provider-setup section). Bring everything up:
 
 ```bash
 cd /Users/bhavya/Desktop/PulseAI
 conda activate pulseai
 docker compose up -d
-alembic upgrade head            # applies 0004
+alembic upgrade head            # applies 0004 + 0005 (dev-user password)
 uvicorn app.main:app --reload --app-dir src     # :8000
 cd frontend && npm run dev                        # :3000
 ```
 
-### Sign in with Google
+### Sign in with email (and reach the existing data)
 
 1. Open http://localhost:3000 → you're redirected to **/signin**.
-2. Click **Continue with Google**, pick an account, grant consent.
-3. You land back on the dashboard; the top-right shows your name + avatar.
+2. Enter **dev@pulseai.local** / **pulseai-dev** → **Sign in**.
+3. You land on the dashboard showing the **existing tickets/summaries** (the dev
+   user owns them). Top-right shows the account + sign-out.
+
+Or create a fresh account: toggle **Create an account**, enter an email +
+password (≥8 chars) → you're signed in to an empty, isolated workspace.
+
+### Sign in with Google (optional)
+
+With Google configured, the **Continue with Google** button appears below the
+email form. Click it, grant consent, and you land back on the dashboard.
 
 ### Confirm data isolation between two users
 
-1. As user A: **Upload** a CSV, then **Analyse** a ticket. Note the Overview
-   counts.
-2. Sign out (top-right), sign in as **a different Google account** (user B).
-3. User B's Overview/Tickets are **empty** — none of A's data is visible.
-4. Sign back in as A → the data is there again.
+1. Sign in as **dev@pulseai.local** — note the Overview counts (existing data).
+2. Sign out (top-right), **create a new account** (or use a second Google login).
+3. The new user's Overview/Tickets are **empty** — none of the dev data shows.
+4. Sign back in as the dev user → the data is there again.
 
 ### Sign out
 
@@ -154,11 +195,14 @@ returned to **/signin**; hitting a protected route redirects there too.
 ### Automated
 
 ```bash
-pytest -q                 # 125 passing (auth + isolation; DB tests auto-skip if down)
+pytest -q                 # 131 passing (OAuth + email + isolation; DB tests auto-skip if down)
 cd frontend && npm run build && npm run lint    # green, all routes static
 ```
 
 ## Graceful degradation
 - Denied/failed OAuth → `/signin?error=…`, never a crash.
+- Bad email/password → uniform 401 `invalid_credentials` (no email enumeration).
+- Duplicate registration → 409; weak password → 422.
 - No cookie / bad / expired → 401 with a typed code; the SPA redirects to sign-in.
+- `email_login_enabled=false` → register/login-email 404; only OAuth remains.
 - No providers configured → sign-in page explains what to set; login route 404s.

@@ -15,6 +15,8 @@
  */
 
 import type {
+  ChatSessionDetail,
+  ChatSessionOut,
   CurrentUser,
   ProvidersResponse,
   StatsResponse,
@@ -204,4 +206,115 @@ export function logout(): Promise<{ status: string }> {
     method: "POST",
     handleUnauthorized: false,
   });
+}
+
+/** Email + password sign-in. Sets the session cookie and returns the user.
+ *  A 401 here is a bad-credentials answer, not a session drop. */
+export function loginEmail(email: string, password: string): Promise<CurrentUser> {
+  return apiFetch<CurrentUser>("/auth/login/email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+    handleUnauthorized: false,
+  });
+}
+
+/** Register a new email/password account (also signs in). */
+export function registerEmail(
+  email: string,
+  password: string,
+  fullName?: string,
+): Promise<CurrentUser> {
+  return apiFetch<CurrentUser>("/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, full_name: fullName || null }),
+    handleUnauthorized: false,
+  });
+}
+
+// ---- Chat (Phase 6) --------------------------------------------------------
+
+export function listSessions(): Promise<ChatSessionOut[]> {
+  return apiFetch<ChatSessionOut[]>("/chat/sessions");
+}
+
+export function createSession(title?: string): Promise<ChatSessionOut> {
+  return apiFetch<ChatSessionOut>("/chat/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title ?? null }),
+  });
+}
+
+export function getSession(id: string): Promise<ChatSessionDetail> {
+  return apiFetch<ChatSessionDetail>(`/chat/sessions/${encodeURIComponent(id)}`);
+}
+
+export function endSession(id: string): Promise<void> {
+  return apiFetch<void>(`/chat/sessions/${encodeURIComponent(id)}/end`, {
+    method: "POST",
+    handleUnauthorized: false,
+  });
+}
+
+/**
+ * Send a message and stream the grounded answer. Calls `onToken` for each token
+ * as it arrives (SSE), resolves when the stream closes. Rejects with ApiError on
+ * a network/HTTP failure before the stream starts.
+ */
+export async function streamMessage(
+  sessionId: string,
+  message: string,
+  onToken: (token: string) => void,
+  opts?: { week?: string; category?: string; signal?: AbortSignal },
+): Promise<void> {
+  const url = `${API_BASE_URL}/chat/sessions/${encodeURIComponent(sessionId)}/messages`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        week: opts?.week ?? null,
+        category: opts?.category ?? null,
+      }),
+      signal: opts?.signal,
+    });
+  } catch {
+    throw new ApiError("Can't reach the PulseAI backend.", { kind: "network" });
+  }
+  if (!res.ok) {
+    const err = await readError(res);
+    if (err.isUnauthorized) onUnauthorized?.();
+    throw err;
+  }
+  if (!res.body) throw new ApiError("No response stream.", { kind: "http" });
+
+  // Parse the SSE body: `data: {json}` lines, blank-line separated.
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const evt of events) {
+      for (const line of evt.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const raw = line.slice(5).trim();
+        if (!raw || raw === "{}") continue;
+        try {
+          const parsed = JSON.parse(raw) as { token?: string; error?: string };
+          if (parsed.token) onToken(parsed.token);
+        } catch {
+          // Ignore malformed keep-alive lines.
+        }
+      }
+    }
+  }
 }

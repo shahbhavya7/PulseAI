@@ -53,6 +53,19 @@ python -c "import secrets; print('PULSE_JWT_SECRET=' + secrets.token_urlsafe(48)
 python -c "import secrets; print('PULSE_OAUTH_STATE_SECRET=' + secrets.token_urlsafe(48))"
 ```
 
+### Email + password (no OAuth setup needed)
+
+Email sign-in is on by default (`PULSE_EMAIL_LOGIN_ENABLED=true`), so you can use
+the app without configuring Google/Apple: create an account from the **/signin**
+page, or sign in to the **existing local data** with the seeded dev user —
+
+```
+email:    dev@pulseai.local
+password: pulseai-dev          # PULSE_DEV_PASSWORD; set by migration 0005
+```
+
+(Set `PULSE_EMAIL_LOGIN_ENABLED=false` to force OAuth-only.)
+
 ### Google setup
 
 1. [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services

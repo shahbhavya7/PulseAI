@@ -25,9 +25,18 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.schemas.auth import CurrentUserResponse, ProvidersResponse
+from app.models.user import User
+from app.schemas.auth import (
+    CurrentUserResponse,
+    LoginRequest,
+    ProvidersResponse,
+    RegisterRequest,
+)
 from app.services.auth import (
+    CredentialsError,
+    authenticate_user,
     clear_session_cookie,
+    register_user,
     set_session_cookie,
     upsert_oauth_user,
 )
@@ -50,8 +59,70 @@ def _frontend(path: str) -> str:
 
 @router.get("/providers", response_model=ProvidersResponse)
 def list_providers() -> ProvidersResponse:
-    """Return the configured sign-in providers (drives the sign-in buttons)."""
-    return ProvidersResponse(providers=enabled_providers())
+    """Return the available sign-in options (drives the sign-in UI)."""
+    return ProvidersResponse(
+        providers=enabled_providers(),
+        email=get_settings().email_login_enabled,
+    )
+
+
+def _session_response(user: User, *, status_code: int = status.HTTP_200_OK) -> JSONResponse:
+    """A JSON response carrying the current user plus the session cookie."""
+    body = CurrentUserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        role=str(user.role),
+        oauth_provider=user.oauth_provider,
+    )
+    response = JSONResponse(body.model_dump(mode="json"), status_code=status_code)
+    set_session_cookie(response, user)
+    return response
+
+
+@router.post("/register")
+def register(payload: RegisterRequest, db: DbSession) -> JSONResponse:
+    """Create an email/password account and sign the user in."""
+    if not get_settings().email_login_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "email_login_disabled", "message": "Email sign-in is disabled."},
+        )
+    try:
+        user = register_user(
+            db,
+            email=payload.email,
+            password=payload.password,
+            full_name=payload.full_name,
+        )
+    except CredentialsError as exc:
+        code = (
+            status.HTTP_409_CONFLICT
+            if exc.code == "email_taken"
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(
+            status_code=code, detail={"code": exc.code, "message": exc.message}
+        ) from exc
+    return _session_response(user, status_code=status.HTTP_201_CREATED)
+
+
+@router.post("/login/email")
+def login_email(payload: LoginRequest, db: DbSession) -> JSONResponse:
+    """Sign in with email + password."""
+    if not get_settings().email_login_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "email_login_disabled", "message": "Email sign-in is disabled."},
+        )
+    try:
+        user = authenticate_user(db, email=payload.email, password=payload.password)
+    except CredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    return _session_response(user)
 
 
 @router.get("/login/{provider}")
