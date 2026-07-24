@@ -10,7 +10,14 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, PostgresDsn, RedisDsn, computed_field, model_validator
+from pydantic import (
+    Field,
+    PostgresDsn,
+    RedisDsn,
+    SecretStr,
+    computed_field,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +69,21 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 10
     db_pool_pre_ping: bool = True
+
+    # ---- OpenAI (Phase 2 AI pipeline) ----
+    # The key lives only in the environment / .env — never hardcoded. When it is
+    # unset the pipeline degrades gracefully instead of crashing.
+    openai_api_key: SecretStr | None = None
+    # GPT-5.x small model. `.env` overrides this; keep it in sync with .env.example.
+    openai_model: str = "gpt-5-mini"
+    openai_timeout_seconds: float = 30.0
+    openai_max_retries: int = 2
+    # GPT-5.x reasoning effort: "minimal" is fastest/cheapest for classification.
+    openai_reasoning_effort: str = "minimal"
+    # Cache TTL for AI results keyed by content_hash (7 days).
+    ai_cache_ttl_seconds: int = 604800
+    # Embedding model (Phase 3). 1536 dims matches app.models.issue.EMBEDDING_DIM.
+    openai_embedding_model: str = "text-embedding-3-small"
 
     @model_validator(mode="after")
     def _assemble_database_url(self) -> Settings:

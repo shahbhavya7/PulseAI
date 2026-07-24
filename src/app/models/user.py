@@ -28,8 +28,12 @@ class User(Base, TimestampMixin):
     role: Mapped[UserRole] = mapped_column(String(32), default=UserRole.MEMBER, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
+    # back_populates="owner": Ticket holds the foreign key to User; this side is
+    # the reverse of that relationship. cascade="all, delete-orphan": deleting a
+    # user also deletes all of their tickets.
     tickets: Mapped[list[Ticket]] = relationship(
-        back_populates="owner", cascade="all, delete-orphan"
+        back_populates="owner",
+        cascade="all, delete-orphan",
     )
     chat_sessions: Mapped[list[ChatSession]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

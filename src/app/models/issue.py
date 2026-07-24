@@ -9,10 +9,17 @@ the AI-triage metadata the rest of the system reasons about:
 * ``content_hash`` — stable hash of the canonical content for dedupe/idempotency.
 * ``week`` — ISO week bucket (``"YYYY-Www"``) used by weekly summaries.
 * ``embedding`` — optional pgvector embedding for semantic search/clustering.
+
+Phase 2 adds AI-analysis columns filled by the pipeline:
+
+* ``sentiment_score`` / ``urgency_score`` — scored from the facts, not the tone.
+* ``themes`` — specific theme labels (e.g. ``"photo-upload crash"``).
+* ``analyzed_at`` — when the AI pipeline last wrote this row (``None`` = not yet).
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -20,6 +27,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -54,6 +62,7 @@ class Issue(Base, TimestampMixin):
         ),
         Index("ix_issues_week_status", "week", "status"),
         Index("ix_issues_needs_manual_review", "needs_manual_review"),
+        Index("ix_issues_needs_reembed", "needs_reembed"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -83,7 +92,19 @@ class Issue(Base, TimestampMixin):
     content_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     week: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
 
+    # ---- Phase 2: AI analysis (scored from facts, not tone) ----
+    sentiment_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    urgency_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    themes: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default="[]", nullable=False
+    )
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ---- Phase 3: vector embedding of the cleaned text ----
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
+    # Set when embedding failed at write time: the row is kept, flagged to be
+    # re-embedded later, so we never lose an issue over a transient embed error.
+    needs_reembed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     ticket: Mapped[Ticket] = relationship(back_populates="issues")
 

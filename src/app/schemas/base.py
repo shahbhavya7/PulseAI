@@ -13,3 +13,7 @@ class APIModel(BaseModel):
     """
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+    # from_attributes=True: a Pydantic model can be built straight from an ORM
+    # object, auto-populating its fields from the object's attributes.
+    # extra="forbid": if any unexpected field is provided when creating an
+    # instance of this model, a validation error is raised.

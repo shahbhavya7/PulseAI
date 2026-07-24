@@ -20,6 +20,24 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.main import app  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_openai_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Force the test suite to be key-independent.
+
+    Tests must never call the real OpenAI API or depend on a developer's ``.env``
+    key. Every test runs with the key cleared; tests that need a working model
+    inject a fake analyzer/summarizer/vector-store. The graceful-degradation
+    tests rely on this being absent.
+    """
+    from app.core.config import get_settings
+    from app.services import llm
+
+    monkeypatch.setattr(get_settings(), "openai_api_key", None)
+    llm.get_openai_client.cache_clear()
+    yield
+    llm.get_openai_client.cache_clear()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     """A TestClient bound to the application, with lifespan events run."""
