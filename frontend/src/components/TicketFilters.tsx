@@ -1,11 +1,21 @@
 "use client";
 
+import { SlidersHorizontal, X } from "lucide-react";
 import { humanize } from "@/lib/format";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 
 export interface Filters {
   category: string;
   sentiment: string;
-  minConfidence: string; // "" | "0.5" | "0.7" | "0.9"
+  minConfidence: string;
   needsReview: boolean;
 }
 
@@ -16,42 +26,35 @@ export const EMPTY_FILTERS: Filters = {
   needsReview: false,
 };
 
+// Radix Select disallows an empty-string item value, so "any" is a sentinel we
+// translate back to "" (no filter).
+const ANY = "__any__";
 const CATEGORIES = ["bug", "feature_request", "question", "incident", "other"];
 const SENTIMENTS = ["negative", "neutral", "positive"];
 const CONFIDENCES = [
-  { value: "", label: "Any confidence" },
+  { value: ANY, label: "Any confidence" },
   { value: "0.5", label: "≥ 50%" },
   { value: "0.7", label: "≥ 70%" },
   { value: "0.9", label: "≥ 90%" },
 ];
 
-function Select({
+function Field({
   label,
-  value,
-  onChange,
   children,
 }: {
   label: string;
-  value: string;
-  onChange: (v: string) => void;
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1 text-xs text-muted">
+    <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
       <span>{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none focus:border-accent"
-      >
-        {children}
-      </select>
+      {children}
     </label>
   );
 }
 
-/** The filter bar for the Tickets route. Purely controlled — the page owns the
- *  state and refetches when it changes. */
+/** Filter bar for the Tickets route. Controlled — the page owns state and
+ *  refetches when it changes. */
 export function TicketFilters({
   value,
   onChange,
@@ -66,54 +69,86 @@ export function TicketFilters({
     value.category || value.sentiment || value.minConfidence || value.needsReview;
 
   return (
-    <div className="flex flex-wrap items-end gap-4 rounded-[var(--radius-card)] border border-border bg-surface p-4">
-      <Select label="Category" value={value.category} onChange={(v) => set("category", v)}>
-        <option value="">All categories</option>
-        {CATEGORIES.map((c) => (
-          <option key={c} value={c}>
-            {humanize(c)}
-          </option>
-        ))}
-      </Select>
+    <div className="glass flex flex-wrap items-end gap-4 rounded-[var(--radius)] p-4">
+      <span className="flex items-center gap-2 pb-2 text-xs font-semibold text-muted-foreground">
+        <SlidersHorizontal className="size-4" />
+        Filters
+      </span>
 
-      <Select label="Sentiment" value={value.sentiment} onChange={(v) => set("sentiment", v)}>
-        <option value="">Any sentiment</option>
-        {SENTIMENTS.map((s) => (
-          <option key={s} value={s}>
-            {humanize(s)}
-          </option>
-        ))}
-      </Select>
+      <Field label="Category">
+        <Select
+          value={value.category || ANY}
+          onValueChange={(v) => set("category", v === ANY ? "" : v)}
+        >
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="All categories" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>All categories</SelectItem>
+            {CATEGORIES.map((c) => (
+              <SelectItem key={c} value={c}>
+                {humanize(c)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
 
-      <Select
-        label="Confidence"
-        value={value.minConfidence}
-        onChange={(v) => set("minConfidence", v)}
-      >
-        {CONFIDENCES.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </Select>
+      <Field label="Sentiment">
+        <Select
+          value={value.sentiment || ANY}
+          onValueChange={(v) => set("sentiment", v === ANY ? "" : v)}
+        >
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Any sentiment" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any sentiment</SelectItem>
+            {SENTIMENTS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {humanize(s)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
 
-      <label className="flex items-center gap-2 pb-1.5 text-sm text-text">
-        <input
-          type="checkbox"
+      <Field label="Confidence">
+        <Select
+          value={value.minConfidence || ANY}
+          onValueChange={(v) => set("minConfidence", v === ANY ? "" : v)}
+        >
+          <SelectTrigger className="w-[150px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CONFIDENCES.map((c) => (
+              <SelectItem key={c.value} value={c.value}>
+                {c.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <label className="flex cursor-pointer items-center gap-2 pb-2 text-sm text-foreground">
+        <Checkbox
           checked={value.needsReview}
-          onChange={(e) => set("needsReview", e.target.checked)}
-          className="h-4 w-4 accent-[var(--color-accent)]"
+          onCheckedChange={(checked) => set("needsReview", checked === true)}
         />
         Needs review only
       </label>
 
       {dirty && (
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => onChange(EMPTY_FILTERS)}
-          className="ml-auto pb-1.5 text-xs font-medium text-accent hover:underline"
+          className="ml-auto text-primary"
         >
-          Clear filters
-        </button>
+          <X className="size-3.5" />
+          Clear
+        </Button>
       )}
     </div>
   );

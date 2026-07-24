@@ -2,13 +2,26 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  ArrowRight,
+  CheckCircle2,
+  CloudUpload,
+  FileCheck2,
+  Gauge,
+  Languages,
+  Loader2,
+  PartyPopper,
+} from "lucide-react";
 import { ApiError, uploadFile } from "@/lib/api";
 import type { UploadSummary } from "@/lib/types";
 import { humanize } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { SKIP_REASON_ICON } from "@/lib/icons";
 import { Card } from "@/components/Card";
 import { StatTile } from "@/components/StatTile";
-import { Badge, ReviewFlag } from "@/components/Badge";
+import { DomainBadge, ReviewFlag } from "@/components/Badge";
 import { ErrorState } from "@/components/States";
+import { MotionItem, MotionStagger, PageTransition } from "@/components/motion";
 
 const ACCEPTED = ".csv,.pdf,.txt,.text";
 
@@ -26,13 +39,10 @@ export default function UploadPage() {
     setResult(null);
     setLastFile(file.name);
     try {
-      const summary = await uploadFile(file);
-      setResult(summary);
+      setResult(await uploadFile(file));
     } catch (err) {
       setError(
-        err instanceof ApiError
-          ? err
-          : new ApiError("Upload failed.", { kind: "http" }),
+        err instanceof ApiError ? err : new ApiError("Upload failed.", { kind: "http" }),
       );
     } finally {
       setBusy(false);
@@ -50,10 +60,10 @@ export default function UploadPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <PageTransition className="space-y-6">
       <header>
-        <h1 className="text-xl font-bold">Upload tickets</h1>
-        <p className="mt-1 text-sm text-muted">
+        <h1 className="text-2xl font-bold tracking-tight">Upload tickets</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           Drop a CSV, PDF, or text file of customer messages. We&apos;ll clean and
           store each one — you&apos;ll see exactly what was created, skipped, or
           flagged.
@@ -74,21 +84,38 @@ export default function UploadPage() {
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
         }}
-        className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[var(--radius-card)] border-2 border-dashed px-6 py-14 text-center transition ${
+        className={cn(
+          "glass group flex cursor-pointer flex-col items-center justify-center gap-4 rounded-[var(--radius)] border-2 border-dashed px-6 py-16 text-center transition-all duration-300",
           dragging
-            ? "border-accent bg-accent-soft/40"
-            : "border-border bg-surface hover:border-accent/60"
-        } ${busy ? "pointer-events-none opacity-60" : ""}`}
+            ? "scale-[1.01] border-primary bg-primary/10 shadow-[0_0_40px_-8px_hsl(243_75%_55%/0.5)]"
+            : "border-white/15 hover:border-primary/50",
+          busy && "pointer-events-none opacity-70",
+        )}
       >
-        <div className="text-4xl" aria-hidden>
-          {busy ? "⏳" : "📥"}
+        <span
+          className={cn(
+            "flex size-16 items-center justify-center rounded-2xl bg-primary/15 text-primary transition-transform duration-300",
+            dragging ? "scale-110 animate-float" : "group-hover:scale-105",
+          )}
+        >
+          {busy ? (
+            <Loader2 className="size-8 animate-spin" />
+          ) : (
+            <CloudUpload className="size-8" />
+          )}
+        </span>
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {busy
+              ? `Uploading ${lastFile ?? "file"}…`
+              : dragging
+                ? "Release to upload"
+                : "Drag a file here, or click to choose"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            CSV, PDF, or plain text · one file at a time
+          </p>
         </div>
-        <p className="text-sm font-semibold text-text">
-          {busy
-            ? `Uploading ${lastFile ?? "file"}…`
-            : "Drag a file here, or click to choose"}
-        </p>
-        <p className="text-xs text-muted">CSV, PDF, or plain text · one file at a time</p>
         <input
           ref={inputRef}
           type="file"
@@ -97,7 +124,7 @@ export default function UploadPage() {
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void handleFile(file);
-            e.target.value = ""; // allow re-uploading the same file
+            e.target.value = "";
           }}
         />
       </div>
@@ -105,40 +132,47 @@ export default function UploadPage() {
       {error && <ErrorState error={error} onRetry={() => setError(null)} />}
 
       {result && <UploadResult summary={result} />}
-    </div>
+    </PageTransition>
   );
 }
 
 function UploadResult({ summary }: { summary: UploadSummary }) {
   const c = summary.counts;
-  const flaggedItems = summary.created_items.filter(
-    (i) => i.flags.length > 0 || i.needs_manual_review,
-  );
 
   return (
     <div className="space-y-5">
       <Card
+        icon={<FileCheck2 />}
         title={`Processed ${summary.filename}`}
         hint={`Parsed as ${summary.parser}${
           summary.encoding_recovered ? " · encoding auto-repaired" : ""
         }`}
       >
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <StatTile value={c.detected} label="Detected" />
-          <StatTile value={c.created} label="Created" tone="feature_request" />
-          <StatTile value={c.flagged} label="Flagged" tone="medium" />
-          <StatTile value={c.skipped} label="Skipped" tone="muted" />
-          <StatTile value={c.duplicates} label="Duplicates" tone="muted" />
-          <StatTile value={c.blanks} label="Blank rows" tone="muted" />
-        </div>
+        <MotionStagger className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {[
+            { count: c.detected, label: "Detected" },
+            { count: c.created, label: "Created", tone: "feature_request" },
+            { count: c.flagged, label: "Flagged", tone: "medium" },
+            { count: c.skipped, label: "Skipped" },
+            { count: c.duplicates, label: "Duplicates" },
+            { count: c.blanks, label: "Blank rows" },
+          ].map((t) => (
+            <MotionItem key={t.label}>
+              <StatTile count={t.count} label={t.label} tone={t.tone} />
+            </MotionItem>
+          ))}
+        </MotionStagger>
         {c.created > 0 && (
-          <p className="mt-4 text-sm text-muted">
+          <p className="mt-4 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
             Next: head to{" "}
-            <Link href="/tickets" className="text-accent hover:underline">
-              Tickets
+            <Link
+              href="/tickets"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              Tickets <ArrowRight className="size-3.5" />
             </Link>{" "}
             to analyse and review them, or the{" "}
-            <Link href="/" className="text-accent hover:underline">
+            <Link href="/" className="text-primary hover:underline">
               Overview
             </Link>{" "}
             for the weekly picture.
@@ -148,26 +182,31 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
 
       {summary.created_items.length > 0 && (
         <Card
+          icon={<CheckCircle2 />}
           title="Created items"
           hint="Each stored issue, with the language detected and how confident the ingest was."
         >
-          <ul className="divide-y divide-border">
+          <ul className="divide-y divide-white/5">
             {summary.created_items.map((item) => (
               <li
                 key={item.issue_id}
                 className="flex items-start justify-between gap-4 py-3"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-text">
+                  <p className="truncate text-sm font-medium text-foreground">
                     {item.title || item.source_ref}
                   </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                    <span className="text-xs text-muted">
-                      {item.language.toUpperCase()} · {Math.round(item.confidence * 100)}%
-                      confidence
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <Languages className="size-3" />
+                      {item.language.toUpperCase()}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Gauge className="size-3" />
+                      {Math.round(item.confidence * 100)}%
                     </span>
                     {item.flags.map((f) => (
-                      <Badge key={f} label={f} tone="other" />
+                      <DomainBadge key={f} label={f} tone="other" />
                     ))}
                     {item.needs_manual_review && <ReviewFlag />}
                   </div>
@@ -183,22 +222,33 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
           title="Skipped items"
           hint="These weren't stored. Duplicates and blanks are skipped on purpose."
         >
-          <ul className="divide-y divide-border">
-            {summary.skipped_items.map((item, i) => (
-              <li key={i} className="flex items-center justify-between gap-4 py-2.5">
-                <span className="truncate text-sm text-muted">{item.source_ref}</span>
-                <Badge label={humanize(item.reason)} tone="muted" />
-              </li>
-            ))}
+          <ul className="divide-y divide-white/5">
+            {summary.skipped_items.map((item, i) => {
+              const Icon = SKIP_REASON_ICON[item.reason];
+              return (
+                <li key={i} className="flex items-center justify-between gap-4 py-2.5">
+                  <span className="truncate text-sm text-muted-foreground">
+                    {item.source_ref}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {Icon && <Icon className="size-3.5" />}
+                    {humanize(item.reason)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}
 
-      {flaggedItems.length === 0 && summary.skipped_items.length === 0 && c.created > 0 && (
-        <p className="text-center text-sm text-muted">
-          Clean batch — nothing needed flagging. 🎉
-        </p>
-      )}
+      {summary.skipped_items.length === 0 &&
+        summary.created_items.every((i) => !i.flags.length && !i.needs_manual_review) &&
+        c.created > 0 && (
+          <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+            <PartyPopper className="size-4 text-[var(--color-feature_request)]" />
+            Clean batch — nothing needed flagging.
+          </p>
+        )}
     </div>
   );
 }

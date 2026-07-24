@@ -14,6 +14,23 @@ export function currentIsoWeek(date = new Date()): string {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+/** The ISO week immediately before `week` (parsed from a "YYYY-Www" string).
+ *  Used for week-over-week deltas. Falls back to the string itself if unparsable. */
+export function previousIsoWeek(week: string): string {
+  const m = /^(\d{4})-W(\d{2})$/.exec(week);
+  if (!m) return week;
+  const [, year, wk] = m;
+  // Reconstruct the Thursday of the given ISO week, step back 7 days, re-derive.
+  const jan4 = new Date(Date.UTC(Number(year), 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  const week1Monday = new Date(jan4);
+  week1Monday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+  const thisMonday = new Date(week1Monday);
+  thisMonday.setUTCDate(week1Monday.getUTCDate() + (Number(wk) - 1) * 7);
+  thisMonday.setUTCDate(thisMonday.getUTCDate() - 7);
+  return currentIsoWeek(thisMonday);
+}
+
 /** Build a list of the last `count` ISO weeks, newest first, for the selector. */
 export function recentIsoWeeks(count = 12, from = new Date()): string[] {
   const weeks: string[] = [];

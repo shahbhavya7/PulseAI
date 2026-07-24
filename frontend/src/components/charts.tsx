@@ -1,12 +1,13 @@
 "use client";
 
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,29 +16,42 @@ import {
 import type { SentimentPoint, ThemeCount } from "@/lib/types";
 import { humanize, sentimentWord } from "@/lib/format";
 
-const AXIS = "#8a95ad";
-const GRID = "#26304a";
+const AXIS = "#8891a5";
+const GRID = "rgba(255,255,255,0.07)";
+const CYAN = "#04f0f0"; // the single vivid accent (--primary)
 
 function color(token: string): string {
-  // Read the CSS custom property so chart colours match the badges. Falls back
-  // to the accent colour on the server / if the token is missing.
-  if (typeof window === "undefined") return "#6366f1";
+  // Read the domain CSS custom property (hex) so chart colours match the badges.
+  if (typeof window === "undefined") return CYAN;
   const v = getComputedStyle(document.documentElement)
     .getPropertyValue(`--color-${token}`)
     .trim();
-  return v || "#6366f1";
+  return v || CYAN;
 }
 
 const tooltipStyle = {
-  background: "#1a2234",
-  border: "1px solid #26304a",
+  background: "rgba(12,14,22,0.82)",
+  backdropFilter: "blur(16px) saturate(180%)",
+  WebkitBackdropFilter: "blur(16px) saturate(180%)",
+  border: "1px solid rgba(255,255,255,0.12)",
   borderRadius: 12,
-  color: "#e6eaf2",
+  color: "#f2f5fa",
   fontSize: 12,
+  boxShadow: "0 12px 40px -8px rgba(0,0,0,0.7)",
 } as const;
 
-/** Category distribution — one coloured bar per issue category. */
-export function CategoryChart({ data }: { data: Record<string, number> }) {
+// Bars grow up; lines/areas draw left→right. Kept snappy but visible.
+const BAR_ANIM = { isAnimationActive: true, animationDuration: 900 } as const;
+
+/** Category distribution — one coloured bar per category. Click a bar to filter
+ *  the Tickets route by that category (via `onSelect`). */
+export function CategoryChart({
+  data,
+  onSelect,
+}: {
+  data: Record<string, number>;
+  onSelect?: (category: string) => void;
+}) {
   const rows = Object.entries(data)
     .map(([category, count]) => ({ category, label: humanize(category), count }))
     .sort((a, b) => b.count - a.count);
@@ -48,8 +62,17 @@ export function CategoryChart({ data }: { data: Record<string, number> }) {
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="label" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff10" }} />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Issues">
+        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
+        <Bar
+          dataKey="count"
+          radius={[6, 6, 0, 0]}
+          name="Issues"
+          {...BAR_ANIM}
+          onClick={(d: { category?: string }) =>
+            d?.category && onSelect?.(d.category)
+          }
+          style={onSelect ? { cursor: "pointer" } : undefined}
+        >
           {rows.map((r) => (
             <Cell key={r.category} fill={color(r.category)} />
           ))}
@@ -72,8 +95,8 @@ export function UrgencyChart({ data }: { data: Record<string, number> }) {
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="label" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff10" }} />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Issues">
+        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
+        <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Issues" {...BAR_ANIM}>
           {rows.map((r) => (
             <Cell key={r.sev} fill={color(r.sev)} />
           ))}
@@ -83,7 +106,8 @@ export function UrgencyChart({ data }: { data: Record<string, number> }) {
   );
 }
 
-/** Sentiment over time — average sentiment (-1..1) per week, with urgency. */
+/** Sentiment over time — avg sentiment (-1..1) per week, drawn as a glowing line
+ *  over a soft area, with urgency as a second line. */
 export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
   const rows = data.map((p) => ({
     week: p.week,
@@ -93,7 +117,13 @@ export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
 
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
+      <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
+        <defs>
+          <linearGradient id="sentFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CYAN} stopOpacity={0.35} />
+            <stop offset="100%" stopColor={CYAN} stopOpacity={0} />
+          </linearGradient>
+        </defs>
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="week" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
         <YAxis domain={[-1, 1]} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
@@ -105,12 +135,23 @@ export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
               : [value, "Urgency (0–1)"]
           }
         />
+        <Area
+          type="monotone"
+          dataKey="Sentiment"
+          stroke="none"
+          fill="url(#sentFill)"
+          isAnimationActive
+          animationDuration={1100}
+        />
         <Line
           type="monotone"
           dataKey="Sentiment"
-          stroke={color("question")}
+          stroke={CYAN}
           strokeWidth={2.5}
-          dot={{ r: 3 }}
+          dot={{ r: 3, fill: CYAN }}
+          activeDot={{ r: 5 }}
+          isAnimationActive
+          animationDuration={1100}
         />
         <Line
           type="monotone"
@@ -118,13 +159,16 @@ export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
           stroke={color("high")}
           strokeWidth={2.5}
           dot={{ r: 3 }}
+          isAnimationActive
+          animationDuration={1100}
         />
-      </LineChart>
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }
 
-/** Top themes — horizontal bars, biggest first. */
+/** Top themes — horizontal bars, biggest first. The top theme is highlighted in
+ *  cyan; the rest are muted so the #1 driver stands out. */
 export function ThemesChart({ data }: { data: ThemeCount[] }) {
   const rows = [...data]
     .sort((a, b) => b.count - a.count)
@@ -132,7 +176,7 @@ export function ThemesChart({ data }: { data: ThemeCount[] }) {
     .map((t) => ({ theme: t.theme, count: t.count }));
 
   return (
-    <ResponsiveContainer width="100%" height={Math.max(200, rows.length * 38)}>
+    <ResponsiveContainer width="100%" height={Math.max(200, rows.length * 40)}>
       <BarChart
         layout="vertical"
         data={rows}
@@ -147,8 +191,12 @@ export function ThemesChart({ data }: { data: ThemeCount[] }) {
           tick={{ fill: AXIS, fontSize: 12 }}
           tickLine={false}
         />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff10" }} />
-        <Bar dataKey="count" radius={[0, 6, 6, 0]} fill={color("accent")} name="Mentions" />
+        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
+        <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Mentions" {...BAR_ANIM}>
+          {rows.map((r, i) => (
+            <Cell key={r.theme} fill={i === 0 ? CYAN : "rgba(255,255,255,0.22)"} />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   );

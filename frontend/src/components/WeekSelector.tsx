@@ -1,8 +1,18 @@
 "use client";
 
+import { CalendarDays } from "lucide-react";
 import { recentIsoWeeks } from "@/lib/format";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-/** Dropdown of recent ISO weeks. "All time" (empty value) shows unfiltered data. */
+const ALL_TIME = "__all__";
+
+/** Dropdown of recent ISO weeks. "All time" shows unfiltered data. */
 export function WeekSelector({
   value,
   onChange,
@@ -14,20 +24,24 @@ export function WeekSelector({
 }) {
   const weeks = recentIsoWeeks(12);
   return (
-    <label className="flex items-center gap-2 text-sm text-muted">
-      <span>Week</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-text outline-none focus:border-accent"
+    <div className="flex items-center gap-2">
+      <CalendarDays className="size-4 text-muted-foreground" />
+      <Select
+        value={value === "" ? ALL_TIME : value}
+        onValueChange={(v) => onChange(v === ALL_TIME ? "" : v)}
       >
-        {includeAllTime && <option value="">All time</option>}
-        {weeks.map((w) => (
-          <option key={w} value={w}>
-            {w}
-          </option>
-        ))}
-      </select>
-    </label>
+        <SelectTrigger className="w-[150px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {includeAllTime && <SelectItem value={ALL_TIME}>All time</SelectItem>}
+          {weeks.map((w) => (
+            <SelectItem key={w} value={w}>
+              {w}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

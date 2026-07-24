@@ -1,19 +1,19 @@
 "use client";
 
-import type { ApiError } from "@/lib/api";
+import { AlertTriangle, PlugZap, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
+import type { ApiError } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
-/** Grey shimmering placeholder blocks shown while data loads. */
-export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`skeleton ${className}`} />;
-}
+export { Skeleton };
 
-/** A full-card loading placeholder: a couple of shimmering bars. */
+/** A full-card loading placeholder: a few shimmering bars. */
 export function LoadingCard({ lines = 3 }: { lines?: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton key={i} className="h-4" />
+        <Skeleton key={i} className="h-4" style={{ width: `${90 - i * 12}%` }} />
       ))}
     </div>
   );
@@ -32,48 +32,53 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   const down = error.isBackendDown;
+  const Icon = down ? PlugZap : AlertTriangle;
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-[var(--radius-card)] border border-border bg-surface px-6 py-10 text-center">
-      <div className="text-3xl" aria-hidden>
-        {down ? "🔌" : "⚠️"}
-      </div>
-      <p className="text-sm font-semibold text-text">
+    <div className="glass flex flex-col items-center justify-center gap-3 rounded-[var(--radius)] px-6 py-10 text-center animate-fade-up">
+      <span
+        className="flex size-12 items-center justify-center rounded-2xl text-destructive"
+        style={{ background: "hsl(var(--destructive) / 0.12)" }}
+      >
+        <Icon className="size-6" />
+      </span>
+      <p className="text-sm font-semibold text-foreground">
         {down ? "The dashboard can't reach the server" : "Something went wrong"}
       </p>
-      <p className="max-w-md text-sm text-muted">
+      <p className="max-w-md text-sm text-muted-foreground">
         {down
           ? "Start the PulseAI backend (it should be listening on port 8000), then try again."
           : error.message}
       </p>
       {onRetry && (
-        <button
-          onClick={onRetry}
-          className="mt-1 rounded-lg border border-accent px-4 py-1.5 text-sm font-medium text-accent transition hover:bg-accent-soft"
-        >
+        <Button variant="outline" size="sm" onClick={onRetry} className="mt-1">
+          <RefreshCw className="size-4" />
           Try again
-        </button>
+        </Button>
       )}
     </div>
   );
 }
 
-/** The "nothing here yet" state, with a suggestion on what to do next. */
+/** The "nothing here yet" state, with a suggestion on what to do next. `icon`
+ *  is a rendered element. */
 export function EmptyState({
-  icon = "📭",
+  icon,
   title,
   children,
 }: {
-  icon?: string;
+  icon: ReactNode;
   title: string;
   children?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-card)] border border-dashed border-border bg-surface px-6 py-12 text-center">
-      <div className="text-3xl" aria-hidden>
+    <div className="glass flex flex-col items-center justify-center gap-2 rounded-[var(--radius)] border-dashed px-6 py-12 text-center animate-fade-up">
+      <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary [&_svg]:size-6">
         {icon}
-      </div>
-      <p className="text-sm font-semibold text-text">{title}</p>
-      {children && <div className="max-w-md text-sm text-muted">{children}</div>}
+      </span>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      {children && (
+        <div className="max-w-md text-sm text-muted-foreground">{children}</div>
+      )}
     </div>
   );
 }

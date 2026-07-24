@@ -3,8 +3,23 @@
 A modern, dark "control-room" dashboard that a **non-technical user can operate
 without explanation**: drag a file to upload, read the week's summary in plain
 English, and browse tickets with their issues. Built with **Next.js (App
-Router) + TypeScript + Tailwind CSS v4 + Recharts**, talking to the FastAPI
-backend through one small typed fetch helper that sends the `X-User-Id` header.
+Router) + TypeScript + Tailwind CSS v4 + shadcn/ui + Recharts**, talking to the
+FastAPI backend through one small typed fetch helper that sends the `X-User-Id`
+header.
+
+**Look & feel:** a **true-black** canvas with one vivid accent (**electric
+cyan**), glassmorphism throughout (frosted `backdrop-blur` surfaces over an
+animated **aurora** gradient), motion via **framer-motion** (route fade-ups,
+staggered card entrances, hover lifts, count-up numbers, chart draw-in, a gliding
+active-nav pill), and **lucide-react** icons everywhere — no emojis. shadcn/ui
+primitives (Button, Card, Select, Badge, Skeleton, Tooltip, Checkbox, Separator)
+are copied into `src/components/ui/` and tuned to the dark glass theme.
+
+**Smart, not just charts:** a hero **insight strip** states the week's headline
+finding in plain language, stat tiles show **week-over-week deltas**, the most
+urgent theme is highlighted, and charts are **interactive** (hover detail,
+click-a-category-bar to filter Tickets) — all derived from the existing `/stats`
+and `/summaries`, no new backend.
 
 ## Where things live
 
@@ -15,11 +30,23 @@ backend through one small typed fetch helper that sends the `X-User-Id` header.
 | [frontend/package.json](../frontend/package.json) | deps + scripts (`dev`, `build`, `lint`, `typecheck`) |
 | [frontend/next.config.mjs](../frontend/next.config.mjs), [tsconfig.json](../frontend/tsconfig.json), [postcss.config.mjs](../frontend/postcss.config.mjs) | Next / TS / Tailwind-v4 config |
 | [frontend/.env.local.example](../frontend/.env.local.example) | `NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_USER_ID` |
+| [frontend/components.json](../frontend/components.json) | shadcn/ui config (new-york style, lucide icons, `@/` aliases) |
+| [frontend/src/components/ui/](../frontend/src/components/ui/) | shadcn primitives: button, card, badge, select, checkbox, skeleton, tooltip, separator |
+| [frontend/src/lib/utils.ts](../frontend/src/lib/utils.ts) | `cn()` class merger (clsx + tailwind-merge) |
+| [frontend/src/lib/icons.ts](../frontend/src/lib/icons.ts) | domain→lucide icon maps (category/severity/skip-reason) + colour token |
+| [frontend/src/lib/insight.ts](../frontend/src/lib/insight.ts) | **smart derivations**: `buildHeroInsight`, `delta`, `mostUrgentTheme` (pure) |
+| [frontend/src/components/AuroraBackground.tsx](../frontend/src/components/AuroraBackground.tsx) | fixed animated aurora backdrop (z-0) + dot grid + vignette |
+| [frontend/src/components/HeroInsight.tsx](../frontend/src/components/HeroInsight.tsx) | the hero insight strip (tone-glowing headline finding) |
+| [frontend/src/components/CountUp.tsx](../frontend/src/components/CountUp.tsx) | number count-up on first render (reduced-motion aware) |
+| [frontend/src/components/motion.tsx](../frontend/src/components/motion.tsx) | framer-motion helpers: PageTransition, MotionStagger/Item, MotionCard |
 | [frontend/src/lib/api.ts](../frontend/src/lib/api.ts) | **the fetch helper** — `apiFetch` + typed endpoint calls + `ApiError` |
 | [frontend/src/lib/types.ts](../frontend/src/lib/types.ts) | TS mirrors of the backend response schemas |
 | [frontend/src/lib/format.ts](../frontend/src/lib/format.ts) | ISO-week + label/display helpers |
 | [frontend/src/lib/useAsync.ts](../frontend/src/lib/useAsync.ts) | one hook driving loading/error/success everywhere |
-| [frontend/src/app/layout.tsx](../frontend/src/app/layout.tsx) | shell: sidebar nav + responsive frame |
+| [frontend/src/app/globals.css](../frontend/src/app/globals.css) | shadcn tokens (dark), domain colours, glass utilities, animation keyframes |
+| [frontend/src/components/TopNav.tsx](../frontend/src/components/TopNav.tsx) | **floating glass top navbar** (sticky, inset, slides down on mount) |
+| [frontend/src/components/NavLink.tsx](../frontend/src/components/NavLink.tsx) | top-nav link + horizontally-gliding active pill (`layoutId`) |
+| [frontend/src/app/layout.tsx](../frontend/src/app/layout.tsx) | shell: floating top nav + aurora background + full-width content below it |
 | [frontend/src/app/page.tsx](../frontend/src/app/page.tsx) | **Overview** route (charts + weekly summary + week selector) |
 | [frontend/src/app/tickets/page.tsx](../frontend/src/app/tickets/page.tsx) | **Tickets** route (issues grouped by ticket + filters) |
 | [frontend/src/app/upload/page.tsx](../frontend/src/app/upload/page.tsx) | **Upload** route (drag/drop → upload summary) |
@@ -40,6 +67,111 @@ backend through one small typed fetch helper that sends the `X-User-Id` header.
 | [src/app/main.py](../src/app/main.py) | `CORSMiddleware` for the dashboard origin |
 | [src/app/core/config.py](../src/app/core/config.py) | `cors_origins` (comma-separated `PULSE_CORS_ORIGINS`) |
 | [tests/test_tickets_api.py](../tests/test_tickets_api.py) | grouping, filters, 422, empty-user (5 tests) |
+
+## 0. Design system (shadcn + glass + motion + icons)
+
+### Root-cause fix — why glass looked flat, and what fixed it
+
+The infrastructure existed but didn't *render*. Diagnosis:
+
+- **Theme & motion were fine.** `<html class="dark">` was present, `--background`
+  resolved, the `.glass` rules compiled intact, framer-motion mounted in SSR
+  (`opacity:0;transform:…`), and `prefers-reduced-motion` wasn't force-disabling
+  in normal mode. None of these were the bug.
+- **The bug: glass had no live backdrop to blur.** `<AuroraBackground>` was
+  `position: fixed; z-index: -10` **and** carried `bg-background` (opaque
+  near-black). A negative-z fixed layer renders *behind* the page's own
+  background canvas, and its own opaque fill painted over the blobs. So every
+  `.glass` panel's `backdrop-filter: blur()` sampled **uniform black** — blurring
+  solid black yields solid black. Glass read as a flat card.
+
+**Fix:**
+1. Aurora moved to `z-0` (not `-z-10`), with **no opaque background** — it only
+   paints the drifting blobs + dot grid + vignette.
+2. `body` background set to **`transparent`**; the base near-black lives once on
+   `<html>` (plus a faint cyan/violet radial lift so even "empty" areas aren't
+   uniform).
+3. App content wrapped in `relative z-10` so it sits above the aurora and every
+   glass surface blurs the moving colour behind it.
+
+Verified in the production build: compiled `.glass` carries
+`backdrop-filter: blur(20px) saturate(180%)` over a ~55%-alpha gradient, `body`
+is transparent, and the aurora layer is `fixed inset-0 z-0` with
+`animate-aurora-*` blobs.
+
+### Theme tokens (true-black, one vivid accent)
+
+Dark-only. shadcn tokens are HSL triplets in `:root`, exposed to Tailwind v4 via
+`@theme inline`; domain colours are hex (read directly by charts/badges).
+
+| Token | Value | Role |
+| --- | --- | --- |
+| `--background` | `240 10% 3.5%` (#08080b) | true-black canvas |
+| `--foreground` | `210 40% 98%` | high-contrast primary text |
+| `--card` | `240 12% 8%` | glass base (used translucent) |
+| `--primary` | `180 96% 50%` (#04f0f0) | **the one accent — electric cyan** |
+| `--muted-foreground` | `220 14% 66%` | dimmed secondary text |
+| `--border` | `240 10% 18%` | hairline borders |
+| `--color-bug / _incident / _critical` | `#ff4d8d / #ff5a5f / #ff4d4d` | high-sat reds/pink |
+| `--color-feature_request / _low` | `#22e39a` | vivid green |
+| `--color-medium / _high` | `#ffc53d / #ff9838` | amber/orange |
+| `--color-question` | `#38bdf8` | sky |
+| `--color-other` | `#b57bff` | violet |
+
+- **Glassmorphism** — `.glass` (blur 20px) / `.glass-strong` (blur 28px):
+  translucent gradient + `backdrop-blur saturate(180%)` + hairline border + top
+  inner-highlight + soft shadow; `.glass-hover` lifts on hover; `.ring-accent`
+  adds a cyan glow ring for hero/highlight surfaces.
+- **Aurora** — four big, saturated blobs (cyan/violet/blue/green) on three
+  independent slow drifts (`aurora-1/2/3`, 26–38s) so the colour movement behind
+  the blur is always visible.
+- **Animations** — keyframes surface as `animate-*` utilities; **framer-motion**
+  helpers in `motion.tsx`: route fade+slide (`PageTransition`, 24px), staggered
+  card/tile reveals (`MotionStagger`/`MotionItem`, scale+slide), hover-lift+scale
+  cards (`MotionCard`), gliding active-nav pill (`layoutId`). Numbers **count up**
+  (`CountUp`), charts **draw in** (bars grow, the sentiment line + area animate).
+  Buttons have `active:scale` press feedback. All respect
+  `prefers-reduced-motion` (CountUp snaps to final value).
+- **Navigation** — a **floating glass top navbar** (`TopNav.tsx`), not a
+  sidebar or a full-width header. It is `sticky top-4`, inset (`mx-auto
+  max-w-6xl px-4`) with `rounded-full`, so it hovers as a detached bar over the
+  aurora — same `.glass-strong` treatment as the cards. Brand left · icon+label
+  nav pills · actions right; on narrow widths the labels collapse to icon-only.
+  It fades + **slides down** on mount, and the active pill glides **horizontally**
+  between items via the shared `layoutId`. Content flows full-width below it
+  (`main` has top padding to clear the bar; the old left sidebar and its
+  `h-screen`/left-margin are gone, so there's no double scrollbar).
+- **Icons** — **lucide-react** everywhere; no emojis. `lib/icons.ts` maps each
+  category/severity/skip-reason to its icon.
+
+> **Icons are passed as rendered elements, not components.** Presentational props
+> take `icon={<Layers />}` (a ReactNode), never `icon={Layers}`. lucide icons are
+> `forwardRef` objects, and passing one as a *component* prop trips Next's
+> static-prerender serialization ("Functions cannot be passed to Client
+> Components"). Passing an element sidesteps it and keeps all routes statically
+> generated (no `force-dynamic`).
+
+### Smart dashboard (derived from `/stats` + `/summaries`, no new backend)
+
+`lib/insight.ts` holds the pure logic:
+
+- **Hero insight strip** (`buildHeroInsight`) — the week's headline finding in
+  plain language, rendered by `<HeroInsight>` with a tone-coloured glow. Priority:
+  (1) a real week-over-week jump in the leading category ("Bug issues up 40% vs
+  last week — now the #1 driver."), (2) a critical spike, (3) the generated
+  summary's own headline, (4) a plain top-driver/sentiment statement. The
+  previous week comes from a second `getStats({ week: previousIsoWeek })` call;
+  the summary from `getSummary(week)` (404 → null, no error).
+- **Week-over-week deltas** (`delta` + `<DeltaBadge>`) — ▲/▼ chips on the Total,
+  Sentiment, and Critical tiles, coloured by whether the direction is *good*
+  (more issues = red, higher sentiment = green).
+- **Most urgent theme** (`mostUrgentTheme`) — highlighted with an accent chip
+  above the themes chart; the #1 theme bar is drawn in cyan while the rest are
+  muted, so the top driver pops.
+- **Interactive charts** — glass tooltips with hover detail on every chart;
+  **clicking a category bar** navigates to `/tickets?category=…`, which the
+  Tickets route reads via `useSearchParams` (inside a `<Suspense>` boundary so it
+  stays statically prerendered) to seed its filter.
 
 ## 1. The fetch helper (`src/lib/api.ts`)
 
