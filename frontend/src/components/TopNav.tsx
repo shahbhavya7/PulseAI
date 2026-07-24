@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Activity, LayoutDashboard, Ticket, UploadCloud } from "lucide-react";
+import { Activity, LayoutDashboard, LogOut, Ticket, UploadCloud } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { useAuth } from "@/components/AuthProvider";
+import { Button } from "@/components/ui/button";
 
 /**
  * Floating glass top navbar. Sticky, inset from all edges (detached bar hovering
@@ -14,6 +16,9 @@ import { NavLink } from "@/components/NavLink";
  * widths the link labels collapse, leaving icon-only pills.
  */
 export function TopNav() {
+  const { user, signOut } = useAuth();
+  const initial = (user?.full_name || user?.email || "?").trim().charAt(0).toUpperCase();
+
   return (
     <motion.header
       initial={{ opacity: 0, y: -24 }}
@@ -45,10 +50,31 @@ export function TopNav() {
           </NavLink>
         </div>
 
-        {/* Actions slot (right-aligned). */}
-        <p className="ml-auto hidden pr-2 text-xs text-muted-foreground lg:block">
-          Customer ticket triage
-        </p>
+        {/* Actions slot (right-aligned): who's signed in + sign out. */}
+        <div className="ml-auto flex items-center gap-2 pr-1">
+          {user && (
+            <>
+              <span
+                className="flex size-8 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary"
+                title={user.email}
+              >
+                {initial}
+              </span>
+              <span className="hidden max-w-[10rem] truncate text-xs text-muted-foreground lg:inline">
+                {user.full_name || user.email}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void signOut()}
+                title="Sign out"
+                aria-label="Sign out"
+              >
+                <LogOut className="size-4" />
+              </Button>
+            </>
+          )}
+        </div>
       </nav>
     </motion.header>
   );

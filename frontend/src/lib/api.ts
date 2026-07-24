@@ -3,15 +3,20 @@
  *
  * Everything goes through `apiFetch`, which:
  *   - prefixes the configured API base URL,
- *   - attaches the dev-stub `X-User-Id` header (Phase 1 auth stub),
+ *   - sends the session cookie (`credentials: "include"`) — auth is a signed
+ *     httpOnly cookie set by the backend after OAuth, so there's no token to
+ *     manage in JS,
  *   - turns a dead backend into a friendly typed error (not a blank screen),
- *   - unwraps the backend's `{ detail: { code, message } }` error shape.
+ *   - unwraps the backend's `{ detail: { code, message } }` error shape,
+ *   - surfaces 401 via a subscribable hook so the app can redirect to sign-in.
  *
  * Callers get typed helpers (`getStats`, `getTickets`, …) and never touch
- * `fetch` directly, so the header and error handling can never be forgotten.
+ * `fetch` directly.
  */
 
 import type {
+  CurrentUser,
+  ProvidersResponse,
   StatsResponse,
   SummaryResponse,
   TicketAnalyzeResponse,
@@ -22,8 +27,6 @@ import type {
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api"
 ).replace(/\/$/, "");
-
-const USER_ID = process.env.NEXT_PUBLIC_USER_ID ?? "";
 
 /** A failure the UI can render kindly. `kind` tells the UI what to say. */
 export class ApiError extends Error {
@@ -46,14 +49,18 @@ export class ApiError extends Error {
   get isBackendDown(): boolean {
     return this.kind === "network";
   }
+
+  /** True when the user isn't signed in (or the session expired). */
+  get isUnauthorized(): boolean {
+    return this.kind === "http" && this.status === 401;
+  }
 }
 
-function buildHeaders(extra?: HeadersInit): Headers {
-  const headers = new Headers(extra);
-  // Only send X-User-Id when configured; a blank value makes the backend fall
-  // back to its seeded dev user, which is exactly what we want for local use.
-  if (USER_ID) headers.set("X-User-Id", USER_ID);
-  return headers;
+// A single listener the auth provider registers so any 401 from any call can
+// drop the user back to the sign-in screen without every caller handling it.
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
 }
 
 async function readError(res: Response): Promise<ApiError> {
@@ -75,13 +82,21 @@ async function readError(res: Response): Promise<ApiError> {
   return new ApiError(message, { kind: "http", status: res.status, code });
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+interface FetchOpts extends RequestInit {
+  /** Set false to NOT trigger the global 401 handler (used by the auth probe,
+   *  where a 401 is an expected "not signed in" answer, not a session drop). */
+  handleUnauthorized?: boolean;
+}
+
+async function apiFetch<T>(path: string, init?: FetchOpts): Promise<T> {
+  const { handleUnauthorized = true, ...rest } = init ?? {};
   const url = `${API_BASE_URL}${path}`;
   let res: Response;
   try {
     res = await fetch(url, {
-      ...init,
-      headers: buildHeaders(init?.headers),
+      ...rest,
+      // Send the session cookie on every cross-origin call.
+      credentials: "include",
       cache: "no-store",
     });
   } catch {
@@ -91,7 +106,11 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       { kind: "network" },
     );
   }
-  if (!res.ok) throw await readError(res);
+  if (!res.ok) {
+    const err = await readError(res);
+    if (err.isUnauthorized && handleUnauthorized) onUnauthorized?.();
+    throw err;
+  }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -154,4 +173,35 @@ export function analyzeTicket(ticketId: string): Promise<TicketAnalyzeResponse> 
     `/tickets/${encodeURIComponent(ticketId)}/analyze`,
     { method: "POST" },
   );
+}
+
+// ---- Auth ------------------------------------------------------------------
+
+/** The current user, or null if not signed in (a 401 here is expected, not a
+ *  session drop, so it doesn't trigger the global handler). */
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  try {
+    return await apiFetch<CurrentUser>("/auth/me", { handleUnauthorized: false });
+  } catch (err) {
+    if (err instanceof ApiError && err.isUnauthorized) return null;
+    throw err;
+  }
+}
+
+export function getProviders(): Promise<ProvidersResponse> {
+  return apiFetch<ProvidersResponse>("/auth/providers", {
+    handleUnauthorized: false,
+  });
+}
+
+/** Full-page navigate to the backend's OAuth login (a redirect flow, not fetch). */
+export function loginUrl(provider: string): string {
+  return `${API_BASE_URL}/auth/login/${encodeURIComponent(provider)}`;
+}
+
+export function logout(): Promise<{ status: string }> {
+  return apiFetch<{ status: string }>("/auth/logout", {
+    method: "POST",
+    handleUnauthorized: false,
+  });
 }

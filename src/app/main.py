@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
 from app.api.routes import api_router
@@ -25,22 +26,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level)
     logger = get_logger("app.main")
+    from app.services.oauth import enabled_providers
+
     logger.info(
-        "Starting %s (env=%s, version=%s)",
+        "Starting %s (env=%s, version=%s, auth_providers=%s)",
         settings.project_name,
         settings.env,
         __version__,
+        enabled_providers() or "none",
     )
-    # Best-effort dev-user seed (Phase 1 auth stub). Never fatal: if the DB is
-    # not reachable at startup the app still boots and /health stays green.
-    try:
-        from app.db.seed import ensure_dev_user
-        from app.db.session import get_sessionmaker
-
-        with get_sessionmaker()() as db:
-            ensure_dev_user(db)
-    except Exception as exc:  # noqa: BLE001 — startup seed must not crash boot
-        logger.warning("Dev-user seed skipped: %s", exc)
     yield
     logger.info("Shutting down %s", settings.project_name)
 
@@ -54,13 +48,24 @@ def create_app() -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
     )
-    # Allow the browser dashboard (Next.js) to call the API cross-origin.
+    # Allow the browser dashboard (Next.js) to call the API cross-origin *with
+    # credentials* (the session cookie). allow_credentials requires explicit
+    # origins (no "*").
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Authlib stashes the OAuth `state`/nonce in a server-signed session cookie
+    # between the login redirect and the callback. This is separate from our own
+    # session JWT and only used during the handshake.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings.oauth_state_secret.get_secret_value(),
+        same_site="lax",
+        https_only=settings.session_cookie_secure,
     )
     # Health routes live at the root; domain routes sit under the API prefix.
     app.include_router(api_router)

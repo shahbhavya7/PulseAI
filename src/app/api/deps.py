@@ -1,56 +1,57 @@
 """Shared FastAPI dependencies.
 
-Phase 1 auth is intentionally a **stub**: no OAuth, no passwords. A caller
-identifies itself with the ``X-User-Id`` header. When the header is omitted we
-fall back to the fixed :data:`~app.db.seed.DEV_USER_ID`, so local curls "just
-work". The referenced user is created on demand, so a fresh database never 404s
-the dev user.
+Auth (Phase 5) is **real OIDC**: after signing in with Google/Apple the browser
+holds a signed session JWT in an httpOnly cookie. ``get_current_user`` reads that
+cookie, verifies it, loads the user, and 401s otherwise. Every route that depends
+on :data:`CurrentUser` is therefore authenticated and scoped to that user.
+
+Tests don't perform the OAuth dance; they override ``get_current_user`` via
+``app.dependency_overrides`` to inject a known user (see ``tests/conftest.py``).
 """
 
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.db.seed import DEV_USER_ID, ensure_dev_user
+from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import User
+from app.services.auth import AuthError, decode_session_token
 
 DbSession = Annotated[Session, Depends(get_db)]
 
 
 def get_current_user(
     db: DbSession,
-    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
+    session: Annotated[str | None, Cookie(alias=get_settings().session_cookie_name)] = None,
 ) -> User:
-    """Resolve the acting user from the ``X-User-Id`` header (dev stub).
+    """Resolve the authenticated user from the session cookie.
 
-    * No header → the fixed dev user (seeded on demand).
-    * A malformed UUID → 400.
-    * A well-formed but unknown id → 404 (except the dev id, which is seeded).
+    * No cookie → 401 (``not_authenticated``).
+    * Bad/expired token → 401 (``invalid_session``).
+    * Valid token but the user is gone or deactivated → 401.
     """
-    if x_user_id is None:
-        return ensure_dev_user(db)
-
-    try:
-        user_id = UUID(x_user_id)
-    except ValueError as exc:
+    if not session:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-User-Id must be a valid UUID",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "not_authenticated", "message": "Sign in to continue."},
+        )
+    try:
+        user_id = decode_session_token(session)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "invalid_session", "message": exc.message},
         ) from exc
 
-    if user_id == DEV_USER_ID:
-        return ensure_dev_user(db)
-
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No user with id {user_id}",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "invalid_session", "message": "Session no longer valid."},
         )
     return user
 

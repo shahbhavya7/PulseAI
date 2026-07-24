@@ -99,6 +99,49 @@ class Settings(BaseSettings):
     # Embedding model (Phase 3). 1536 dims matches app.models.issue.EMBEDDING_DIM.
     openai_embedding_model: str = "text-embedding-3-small"
 
+    # ---- Phase 5: auth (Google / Apple OIDC) ----
+    # Signs the session JWT stored in the httpOnly cookie. MUST be set in any
+    # non-local environment; a dev default keeps local boot working.
+    jwt_secret: SecretStr = SecretStr("dev-insecure-change-me")
+    jwt_algorithm: str = "HS256"
+    session_ttl_seconds: int = 60 * 60 * 24 * 7  # 7 days
+    session_cookie_name: str = "pulse_session"
+    # Cookie flags. Secure must be True behind HTTPS in production; SameSite=lax
+    # works for the top-level redirect back from the OAuth provider.
+    session_cookie_secure: bool = False
+    session_cookie_samesite: str = "lax"
+    session_cookie_domain: str | None = None
+    # Base URLs used to build the OAuth redirect URI and the post-login bounce.
+    # backend_base_url is where the provider redirects (…/api/auth/callback/{p});
+    # frontend_base_url is where we send the browser after a successful login.
+    backend_base_url: str = "http://localhost:8000"
+    frontend_base_url: str = "http://localhost:3000"
+    oauth_state_secret: SecretStr = SecretStr("dev-insecure-state-change-me")
+
+    # Google OIDC. Both must be set for the Google button to work.
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+
+    # Apple Sign In. All four must be set for the Apple button to work; the
+    # client secret is a short-lived JWT generated from the .p8 key at runtime.
+    apple_client_id: str | None = None  # the Services ID (e.g. com.pulseai.web)
+    apple_team_id: str | None = None
+    apple_key_id: str | None = None
+    apple_private_key: SecretStr | None = None  # contents of the .p8 file
+
+    @property
+    def google_enabled(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def apple_enabled(self) -> bool:
+        return bool(
+            self.apple_client_id
+            and self.apple_team_id
+            and self.apple_key_id
+            and self.apple_private_key
+        )
+
     @model_validator(mode="after")
     def _assemble_database_url(self) -> Settings:
         """Build ``database_url`` from parts when a full DSN was not supplied."""

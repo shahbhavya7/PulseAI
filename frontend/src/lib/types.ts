@@ -159,3 +159,17 @@ export interface TicketAnalyzeResponse {
   created: number;
   issues: AnalyzedIssueOut[];
 }
+
+// ---- Auth (GET /auth/me, /auth/providers) ----------------------------------
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  oauth_provider: string | null;
+}
+
+export interface ProvidersResponse {
+  providers: string[];
+}

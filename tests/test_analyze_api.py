@@ -6,11 +6,14 @@ is required. Unique text per run avoids Redis cache carry-over between runs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.session import get_sessionmaker
+from app.models.user import User
 from app.schemas.ai import (
     Classification,
     IssueAnalysis,
@@ -21,6 +24,16 @@ from app.schemas.ai import (
 from app.services import llm
 
 pytestmark = pytest.mark.usefixtures("require_db")
+
+
+@pytest.fixture(autouse=True)
+def _auth(require_db: None, as_user: Callable[[str], str]) -> None:
+    """Authenticate every analyze test as a fresh, isolated user."""
+    with get_sessionmaker()() as db:
+        user = User(email=f"{uuid4().hex}@test.local", full_name="Analyze Tester")
+        db.add(user)
+        db.commit()
+        as_user(str(user.id))
 
 
 def _two_issue_analysis(_text: str) -> TicketAnalysis:

@@ -6,16 +6,30 @@ runs don't dedup these away.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+
+from app.db.session import get_sessionmaker
+from app.models.user import User
 
 pytestmark = pytest.mark.usefixtures("require_db")
 
 
 def _csv(*rows: str, header: str = "text") -> bytes:
     return (header + "\n" + "\n".join(rows) + "\n").encode()
+
+
+@pytest.fixture(autouse=True)
+def _auth(require_db: None, as_user: Callable[[str], str]) -> None:
+    """Authenticate every upload test as a fresh, isolated user."""
+    with get_sessionmaker()() as db:
+        user = User(email=f"{uuid4().hex}@test.local", full_name="Upload Tester")
+        db.add(user)
+        db.commit()
+        as_user(str(user.id))
 
 
 def test_upload_csv_creates_tickets(client: TestClient) -> None:
@@ -82,10 +96,15 @@ def test_upload_text_file_boundary_split(client: TestClient) -> None:
     assert resp.json()["counts"]["created"] == 2
 
 
-def test_malformed_user_id_header_returns_400(client: TestClient) -> None:
+def test_upload_requires_auth(client: TestClient) -> None:
+    # Drop the autouse auth override → no session → 401 (real auth, no stub).
+    from app.api.deps import get_current_user
+    from app.main import app
+
+    app.dependency_overrides.pop(get_current_user, None)
     resp = client.post(
         "/uploads",
         files={"file": ("x.csv", _csv("anything"), "text/csv")},
-        headers={"X-User-Id": "not-a-uuid"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "not_authenticated"

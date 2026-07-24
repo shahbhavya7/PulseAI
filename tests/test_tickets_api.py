@@ -6,6 +6,7 @@ monkeypatched, so no OpenAI key is needed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import uuid4
 
 import pytest
@@ -65,25 +66,28 @@ class _FakeStore:
         return [0.01] * 1536
 
 
-def _upload_and_analyze(client: TestClient, headers: dict[str, str], text: str) -> str:
+def _upload_and_analyze(client: TestClient, text: str) -> str:
     data = (f"text\n{text}\n").encode()
-    up = client.post("/uploads", files={"file": ("t.csv", data, "text/csv")}, headers=headers)
+    up = client.post("/uploads", files={"file": ("t.csv", data, "text/csv")})
     assert up.status_code == 201, up.text
     tid = up.json()["created_items"][0]["ticket_id"]
-    an = client.post(f"/tickets/{tid}/analyze", headers=headers)
+    an = client.post(f"/tickets/{tid}/analyze")
     assert an.status_code == 200, an.text
     return tid
 
 
 def test_tickets_groups_issues_and_reports_count(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
     monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
-    headers = {"X-User-Id": _new_user()}
-    _upload_and_analyze(client, headers, f"crash and praise {uuid4().hex}")
+    as_user(_new_user())
+    _upload_and_analyze(
+        client,
+        f"the app keeps crashing on photo upload and I love the new dark mode {uuid4().hex}",
+    )
 
-    resp = client.get("/tickets", headers=headers)
+    resp = client.get("/tickets")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["total"] == 1
@@ -95,14 +99,17 @@ def test_tickets_groups_issues_and_reports_count(
 
 
 def test_tickets_category_filter_narrows_nested_issues(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
     monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
-    headers = {"X-User-Id": _new_user()}
-    _upload_and_analyze(client, headers, f"crash and praise {uuid4().hex}")
+    as_user(_new_user())
+    _upload_and_analyze(
+        client,
+        f"the app keeps crashing on photo upload and I love the new dark mode {uuid4().hex}",
+    )
 
-    resp = client.get("/tickets?category=bug", headers=headers)
+    resp = client.get("/tickets?category=bug")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
@@ -113,28 +120,42 @@ def test_tickets_category_filter_narrows_nested_issues(
 
 
 def test_tickets_sentiment_filter(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
     monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
-    headers = {"X-User-Id": _new_user()}
-    _upload_and_analyze(client, headers, f"crash and praise {uuid4().hex}")
+    as_user(_new_user())
+    _upload_and_analyze(
+        client,
+        f"the app keeps crashing on photo upload and I love the new dark mode {uuid4().hex}",
+    )
 
-    resp = client.get("/tickets?sentiment=positive", headers=headers)
+    resp = client.get("/tickets?sentiment=positive")
     assert resp.status_code == 200
     ticket = resp.json()["tickets"][0]
     assert [i["category"] for i in ticket["issues"]] == ["feature_request"]
 
 
-def test_tickets_invalid_category_is_422(client: TestClient) -> None:
-    headers = {"X-User-Id": _new_user()}
-    resp = client.get("/tickets?category=nonsense", headers=headers)
+def test_tickets_invalid_category_is_422(
+    client: TestClient, as_user: Callable[[str], str]
+) -> None:
+    as_user(_new_user())
+    resp = client.get("/tickets?category=nonsense")
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "invalid_filter"
 
 
-def test_tickets_empty_for_new_user(client: TestClient) -> None:
-    headers = {"X-User-Id": _new_user()}
-    resp = client.get("/tickets", headers=headers)
+def test_tickets_empty_for_new_user(
+    client: TestClient, as_user: Callable[[str], str]
+) -> None:
+    as_user(_new_user())
+    resp = client.get("/tickets")
     assert resp.status_code == 200
     assert resp.json() == {"total": 0, "limit": 50, "offset": 0, "tickets": []}
+
+
+def test_tickets_requires_auth(client: TestClient) -> None:
+    # No as_user() → no session → 401 (real auth, no stub fallback).
+    resp = client.get("/tickets")
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "not_authenticated"
