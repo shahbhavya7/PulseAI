@@ -21,6 +21,25 @@ uvicorn app.main:app --reload --app-dir src
 
 Then hit http://localhost:8000/health and http://localhost:8000/ready.
 
+### Start everything (backend + dashboard)
+
+To run the FastAPI backend **and** the Next.js dashboard together (Ctrl-C stops
+both), use the dev start script — it installs frontend deps and creates
+`frontend/.env.local` on first run:
+
+```bash
+docker compose up -d                       # Postgres + Redis first
+./scripts/start-dev.sh                      # backend :8000 + frontend :3000
+```
+
+```bash
+./scripts/start-dev.sh --backend-only       # just the API
+./scripts/start-dev.sh --frontend-only      # just the dashboard
+BACKEND_PORT=8001 FRONTEND_PORT=3001 ./scripts/start-dev.sh
+```
+
+Then open http://localhost:3000. See [docs/phase-4-dashboard.md](docs/phase-4-dashboard.md).
+
 ## Checks
 
 ```bash

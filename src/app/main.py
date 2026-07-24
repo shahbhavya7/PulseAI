@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.routes import api_router
@@ -52,6 +53,14 @@ def create_app() -> FastAPI:
         version=__version__,
         debug=settings.debug,
         lifespan=lifespan,
+    )
+    # Allow the browser dashboard (Next.js) to call the API cross-origin.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     # Health routes live at the root; domain routes sit under the API prefix.
     app.include_router(api_router)

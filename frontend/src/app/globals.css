@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/*
+  Design tokens for the dashboard. Tailwind v4 reads these `@theme` variables and
+  generates the matching utility classes (bg-surface, text-muted, etc.). Dark,
+  modern "control room" palette with a single indigo/violet accent.
+*/
+@theme {
+  --color-canvas: #0b0f1a;
+  --color-surface: #121826;
+  --color-surface-2: #1a2234;
+  --color-border: #26304a;
+  --color-muted: #8a95ad;
+  --color-text: #e6eaf2;
+  --color-accent: #6366f1;
+  --color-accent-soft: #312e81;
+
+  --color-bug: #f472b6;
+  --color-feature_request: #34d399;
+  --color-question: #60a5fa;
+  --color-incident: #f87171;
+  --color-other: #a78bfa;
+
+  --color-low: #34d399;
+  --color-medium: #fbbf24;
+  --color-high: #fb923c;
+  --color-critical: #f87171;
+
+  --radius-card: 16px;
+}
+
+html,
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+/* Custom scrollbar so long lists feel intentional, not default-browser. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  animation: pulse-fade 1.4s ease-in-out infinite;
+  background: var(--color-surface-2);
+  border-radius: 8px;
+}

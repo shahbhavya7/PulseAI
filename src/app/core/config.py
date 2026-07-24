@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_prefix: str = "/api"
     project_name: str = "PulseAI"
+    # Browser origins allowed to call the API (the Next.js dev server by default).
+    # Override with PULSE_CORS_ORIGINS as a comma-separated list.
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"]
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _split_cors_origins(cls, data: dict[str, object]) -> dict[str, object]:
+        """Allow PULSE_CORS_ORIGINS to be a comma-separated string in the env."""
+        origins = data.get("cors_origins") if isinstance(data, dict) else None
+        if isinstance(origins, str):
+            data["cors_origins"] = [o.strip() for o in origins.split(",") if o.strip()]
+        return data
 
     # ---- Postgres ----
     # A full DSN wins if provided; otherwise it is assembled from the parts.
