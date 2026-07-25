@@ -29,16 +29,57 @@ function color(token: string): string {
   return v || CYAN;
 }
 
+// Near-opaque so the tooltip reads clearly against the aurora background (the
+// old translucent+blur version blended in). Kept dark to match the theme.
 const tooltipStyle = {
-  background: "rgba(12,14,22,0.82)",
-  backdropFilter: "blur(16px) saturate(180%)",
-  WebkitBackdropFilter: "blur(16px) saturate(180%)",
-  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(10,12,20,0.97)",
+  border: "1px solid rgba(255,255,255,0.16)",
   borderRadius: 12,
   color: "#f2f5fa",
   fontSize: 12,
-  boxShadow: "0 12px 40px -8px rgba(0,0,0,0.7)",
+  padding: "8px 12px",
+  boxShadow: "0 12px 40px -8px rgba(0,0,0,0.85)",
 } as const;
+
+/** A tooltip that shows the value and — for clickable charts — a subtle one-line
+ *  "click to filter" hint under a divider, so the hint never clutters the value. */
+function ClickableTooltip({
+  active,
+  payload,
+  label,
+  unit,
+  clickable,
+}: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: Record<string, unknown> }>;
+  label?: string;
+  unit: string;
+  clickable?: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const value = payload[0].value;
+  return (
+    <div style={tooltipStyle}>
+      <div style={{ fontWeight: 600 }}>{label}</div>
+      <div style={{ color: "#c4ccda" }}>
+        {unit}: {value}
+      </div>
+      {clickable && (
+        <div
+          style={{
+            marginTop: 6,
+            paddingTop: 6,
+            borderTop: "1px solid rgba(255,255,255,0.12)",
+            color: "#7e8aa0",
+            fontSize: 11,
+          }}
+        >
+          Click to view these tickets
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Bars grow up; lines/areas draw left→right. Kept snappy but visible.
 const BAR_ANIM = { isAnimationActive: true, animationDuration: 900 } as const;
@@ -62,7 +103,10 @@ export function CategoryChart({
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="label" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
+        <Tooltip
+          cursor={{ fill: "#ffffff0d" }}
+          content={<ClickableTooltip unit="Issues" clickable={!!onSelect} />}
+        />
         <Bar
           dataKey="count"
           radius={[6, 6, 0, 0]}
@@ -82,8 +126,15 @@ export function CategoryChart({
   );
 }
 
-/** Severity/urgency breakdown — low→critical, always in that order. */
-export function UrgencyChart({ data }: { data: Record<string, number> }) {
+/** Severity/urgency breakdown — low→critical, always in that order. Click a bar
+ *  to filter the Tickets route by that severity (via `onSelect`). */
+export function UrgencyChart({
+  data,
+  onSelect,
+}: {
+  data: Record<string, number>;
+  onSelect?: (severity: string) => void;
+}) {
   const order = ["low", "medium", "high", "critical"];
   const rows = order
     .filter((sev) => data[sev] != null)
@@ -95,8 +146,18 @@ export function UrgencyChart({ data }: { data: Record<string, number> }) {
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="label" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
         <YAxis allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]} name="Issues" {...BAR_ANIM}>
+        <Tooltip
+          cursor={{ fill: "#ffffff0d" }}
+          content={<ClickableTooltip unit="Issues" clickable={!!onSelect} />}
+        />
+        <Bar
+          dataKey="count"
+          radius={[6, 6, 0, 0]}
+          name="Issues"
+          {...BAR_ANIM}
+          onClick={(d: { sev?: string }) => d?.sev && onSelect?.(d.sev)}
+          style={onSelect ? { cursor: "pointer" } : undefined}
+        >
           {rows.map((r) => (
             <Cell key={r.sev} fill={color(r.sev)} />
           ))}

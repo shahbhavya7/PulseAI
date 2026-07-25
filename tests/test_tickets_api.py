@@ -122,6 +122,33 @@ def test_tickets_category_filter_narrows_nested_issues(
     assert [i["category"] for i in ticket["issues"]] == ["bug"]
 
 
+def test_tickets_severity_filter_narrows_issues(
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """?severity=critical (urgency chart click) returns only critical-severity issues."""
+    monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+    as_user(_new_user())
+    # _two_issues maps urgency high→severity HIGH and low→LOW; neither is critical.
+    _upload_and_analyze(
+        client,
+        f"the app keeps crashing on photo upload and I love the new dark mode {uuid4().hex}",
+    )
+
+    # 'high' matches the bug issue; 'critical' matches nothing.
+    high = client.get("/tickets?severity=high").json()
+    assert high["total"] == 1
+    assert [i["severity"] for i in high["tickets"][0]["issues"]] == ["high"]
+    assert client.get("/tickets?severity=critical").json()["total"] == 0
+
+
+def test_tickets_invalid_severity_is_422(client: TestClient, as_user: Callable[[str], str]) -> None:
+    as_user(_new_user())
+    resp = client.get("/tickets?severity=nonsense")
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "invalid_filter"
+
+
 def test_tickets_sentiment_filter(
     client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

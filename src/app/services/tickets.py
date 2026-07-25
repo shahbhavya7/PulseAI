@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.models.enums import IssueCategory
+from app.models.enums import IssueCategory, IssueSeverity
 from app.models.issue import Issue
 from app.models.ticket import Ticket
 from app.schemas.ticket import IssueOut, TicketListResponse, TicketOut
@@ -32,6 +32,7 @@ def _apply_issue_filters(
     stmt: Select[tuple[Issue]],
     *,
     category: str | None,
+    severity: str | None,
     sentiment: str | None,
     min_confidence: float | None,
     needs_manual_review: bool | None,
@@ -39,6 +40,8 @@ def _apply_issue_filters(
     """Apply the issue-level WHERE clauses shared by count and fetch queries."""
     if category is not None:
         stmt = stmt.where(Issue.category == IssueCategory(category))
+    if severity is not None:
+        stmt = stmt.where(Issue.severity == IssueSeverity(severity))
     if sentiment is not None:
         low, high = _SENTIMENT_BANDS[sentiment]
         stmt = stmt.where(Issue.sentiment_score >= low, Issue.sentiment_score <= high)
@@ -71,6 +74,7 @@ def list_tickets(
     user_id: UUID,
     *,
     category: str | None = None,
+    severity: str | None = None,
     sentiment: str | None = None,
     min_confidence: float | None = None,
     needs_manual_review: bool | None = None,
@@ -83,11 +87,14 @@ def list_tickets(
     if category is not None:
         # Validate early so a bad value is a clean error, not a 500.
         IssueCategory(category)
+    if severity is not None:
+        IssueSeverity(severity)
 
     # Ticket ids that own at least one issue passing the filters.
     matching_issues: Select[tuple[Issue]] = _apply_issue_filters(
         select(Issue).where(Issue.ticket_id == Ticket.id),
         category=category,
+        severity=severity,
         sentiment=sentiment,
         min_confidence=min_confidence,
         needs_manual_review=needs_manual_review,
@@ -121,6 +128,7 @@ def list_tickets(
             if _issue_matches(
                 iss,
                 category=category,
+                severity=severity,
                 sentiment=sentiment,
                 min_confidence=min_confidence,
                 needs_manual_review=needs_manual_review,
@@ -145,12 +153,15 @@ def _issue_matches(
     issue: Issue,
     *,
     category: str | None,
+    severity: str | None,
     sentiment: str | None,
     min_confidence: float | None,
     needs_manual_review: bool | None,
 ) -> bool:
     """In-Python mirror of the SQL filters, applied to a loaded issue."""
     if category is not None and str(issue.category) != category:
+        return False
+    if severity is not None and str(issue.severity) != severity:
         return False
     if sentiment is not None:
         low, high = _SENTIMENT_BANDS[sentiment]

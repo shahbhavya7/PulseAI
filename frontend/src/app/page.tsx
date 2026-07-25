@@ -217,9 +217,14 @@ function StatsView({
         <Card
           icon={<AlertOctagon />}
           title="Urgency breakdown"
-          hint="Issues by severity — critical needs attention first."
+          hint="Issues by severity — click a bar to see those tickets."
         >
-          <UrgencyChart data={data.urgency_counts} />
+          <UrgencyChart
+            data={data.urgency_counts}
+            onSelect={(severity) =>
+              router.push(`/tickets?severity=${encodeURIComponent(severity)}`)
+            }
+          />
         </Card>
       </div>
 

@@ -36,16 +36,18 @@ function TicketsSkeleton() {
 
 function TicketsView() {
   const params = useSearchParams();
-  // Seed the category filter from the URL (?category=bug) for click-to-filter
-  // from the Overview charts.
+  // Seed filters from the URL (?category=bug, ?severity=critical) for
+  // click-to-filter from the Overview charts.
   const [filters, setFilters] = useState<Filters>({
     ...EMPTY_FILTERS,
     category: params.get("category") ?? "",
+    severity: params.get("severity") ?? "",
   });
 
   const query = useMemo(
     () => ({
       category: filters.category || undefined,
+      severity: filters.severity || undefined,
       sentiment: filters.sentiment || undefined,
       minConfidence: filters.minConfidence ? Number(filters.minConfidence) : undefined,
       needsManualReview: filters.needsReview ? true : undefined,
@@ -56,13 +58,18 @@ function TicketsView() {
 
   const state = useAsync<TicketListResponse>(() => getTickets(query), [
     query.category,
+    query.severity,
     query.sentiment,
     query.minConfidence,
     query.needsManualReview,
   ]);
 
   const anyFilter =
-    filters.category || filters.sentiment || filters.minConfidence || filters.needsReview;
+    filters.category ||
+    filters.severity ||
+    filters.sentiment ||
+    filters.minConfidence ||
+    filters.needsReview;
 
   return (
     <PageTransition className="space-y-5">

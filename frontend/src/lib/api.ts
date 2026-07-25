@@ -161,6 +161,7 @@ export function generateSummary(week: string): Promise<SummaryResponse> {
 
 export function getTickets(params: {
   category?: string;
+  severity?: string;
   sentiment?: string;
   minConfidence?: number;
   needsManualReview?: boolean;
@@ -169,6 +170,7 @@ export function getTickets(params: {
 }): Promise<TicketListResponse> {
   const q = new URLSearchParams();
   if (params.category) q.set("category", params.category);
+  if (params.severity) q.set("severity", params.severity);
   if (params.sentiment) q.set("sentiment", params.sentiment);
   if (params.minConfidence != null) q.set("min_confidence", String(params.minConfidence));
   if (params.needsManualReview != null)

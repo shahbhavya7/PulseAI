@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 
 export interface Filters {
   category: string;
+  severity: string;
   sentiment: string;
   minConfidence: string;
   needsReview: boolean;
@@ -21,6 +22,7 @@ export interface Filters {
 
 export const EMPTY_FILTERS: Filters = {
   category: "",
+  severity: "",
   sentiment: "",
   minConfidence: "",
   needsReview: false,
@@ -30,6 +32,7 @@ export const EMPTY_FILTERS: Filters = {
 // translate back to "" (no filter).
 const ANY = "__any__";
 const CATEGORIES = ["bug", "feature_request", "question", "incident", "other"];
+const SEVERITIES = ["low", "medium", "high", "critical"];
 const SENTIMENTS = ["negative", "neutral", "positive"];
 const CONFIDENCES = [
   { value: ANY, label: "Any confidence" },
@@ -66,7 +69,11 @@ export function TicketFilters({
     onChange({ ...value, [key]: v });
 
   const dirty =
-    value.category || value.sentiment || value.minConfidence || value.needsReview;
+    value.category ||
+    value.severity ||
+    value.sentiment ||
+    value.minConfidence ||
+    value.needsReview;
 
   return (
     <div className="glass flex flex-wrap items-end gap-4 rounded-[var(--radius)] p-4">
@@ -88,6 +95,25 @@ export function TicketFilters({
             {CATEGORIES.map((c) => (
               <SelectItem key={c} value={c}>
                 {humanize(c)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
+
+      <Field label="Urgency">
+        <Select
+          value={value.severity || ANY}
+          onValueChange={(v) => set("severity", v === ANY ? "" : v)}
+        >
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="Any urgency" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any urgency</SelectItem>
+            {SEVERITIES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {humanize(s)}
               </SelectItem>
             ))}
           </SelectContent>

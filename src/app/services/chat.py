@@ -204,6 +204,15 @@ def stream_turn(
                 if retry.strip():
                     collected.append(retry)
                     yield retry
+            # Still empty after the retry → give a helpful sentence rather than a
+            # bare "(no answer)" placeholder in the transcript.
+            if not "".join(collected).strip():
+                empty = (
+                    "I couldn't put together an answer for that one. Try rephrasing, "
+                    "or ask me about your ticket categories, urgency, or top themes."
+                )
+                collected.append(empty)
+                yield empty
         except LLMError as exc:
             logger.info("Chat answer degraded: %s", exc)
             fallback = (

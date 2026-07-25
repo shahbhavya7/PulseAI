@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import {
+  Check,
   ChevronDown,
+  Copy,
   FileText,
   Gauge,
   Hash,
@@ -72,9 +74,12 @@ export function TicketCard({
           <h3 className="truncate text-sm font-semibold text-foreground">
             {ticket.title}
           </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {humanize(ticket.source)} ·{" "}
-            {new Date(ticket.created_at).toLocaleDateString()}
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <TicketIdChip id={ticket.id} />
+            <span>·</span>
+            <span>{humanize(ticket.source)}</span>
+            <span>·</span>
+            <span>{new Date(ticket.created_at).toLocaleDateString()}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -134,6 +139,41 @@ export function TicketCard({
         ))}
       </ul>
     </MotionCard>
+  );
+}
+
+/** The ticket's short id (first 8 chars of its UUID), click to copy the full id.
+ *  Gives every card a stable reference a user can quote in support. */
+function TicketIdChip({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const short = id.slice(0, 8);
+
+  async function copy(e: React.MouseEvent) {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard blocked (insecure context) — the id is still visible to read.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={`Ticket ${id} — click to copy`}
+      className="group/id inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      #{short}
+      {copied ? (
+        <Check className="ml-1 h-2.5 w-2.5 text-[var(--color-feature_request)]" />
+      ) : (
+        // Collapsed to zero width until hover, so no empty gap is reserved.
+        <Copy className="h-2.5 w-0 opacity-0 transition-all group-hover/id:ml-1 group-hover/id:w-2.5 group-hover/id:opacity-70" />
+      )}
+    </button>
   );
 }
 
