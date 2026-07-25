@@ -18,6 +18,7 @@ needs to behave well lives here:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from functools import lru_cache
 from typing import cast
@@ -86,6 +87,31 @@ def get_openai_client() -> OpenAI:
         timeout=settings.openai_timeout_seconds,
         max_retries=settings.openai_max_retries,
     )
+
+
+# ---------------------------------------------------------------------------
+# Output style: no em dashes anywhere in generated text
+# ---------------------------------------------------------------------------
+
+# A single line appended to every generation prompt. Prompts aren't 100%
+# reliable, so `strip_em_dashes` below enforces it on the actual output too.
+_NO_EM_DASH_RULE = (
+    "Style: never use em dashes (—) or en dashes (–). Use a comma, a colon, "
+    "or a full stop instead. This applies to every field you write."
+)
+
+
+def strip_em_dashes(text: str) -> str:
+    """Remove em/en dashes from generated text, keeping it readable.
+
+    A dash surrounded by spaces (" — ") becomes a comma-space ("," + " ");
+    a tight dash ("a—b") becomes a comma. Applied to every LLM text output so
+    the no-em-dash rule holds even when the model ignores the prompt.
+    """
+    text = re.sub(r"\s*[—–]\s*", ", ", text)
+    # Collapse any accidental double punctuation the swap can create.
+    text = re.sub(r",\s*,", ", ", text)
+    return text.replace(",  ", ", ")
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +247,7 @@ def build_instructions() -> str:
     examples = "\n".join(
         _example(text, analysis, rationale) for text, analysis, rationale in _FEW_SHOT
     )
-    return f"{_SYSTEM_RULES}\nWorked examples:\n\n{examples}"
+    return f"{_SYSTEM_RULES}\n{_NO_EM_DASH_RULE}\nWorked examples:\n\n{examples}"
 
 
 def wrap_ticket(text: str) -> str:
@@ -268,6 +294,9 @@ def analyze_ticket_text(text: str, *, client: OpenAI | None = None) -> TicketAna
     parsed = response.output_parsed
     if parsed is None or not parsed.issues:
         raise LLMCallError("AI returned no usable analysis.")
+    # Enforce the no-em-dash rule on the model-written summary of each issue.
+    for issue in parsed.issues:
+        issue.summary = strip_em_dashes(issue.summary)
     return parsed
 
 
@@ -303,7 +332,7 @@ def summarize_week(context: str, *, client: OpenAI | None = None) -> WeeklySumma
         response = client.responses.parse(
             model=settings.openai_model,
             reasoning=Reasoning(effort=cast(ReasoningEffort, settings.openai_reasoning_effort)),
-            instructions=_SUMMARY_RULES,
+            instructions=f"{_SUMMARY_RULES}\n{_NO_EM_DASH_RULE}",
             input=f"<week_data>\n{context}\n</week_data>",
             text_format=WeeklySummaryContent,
             max_output_tokens=1500,
@@ -318,7 +347,14 @@ def summarize_week(context: str, *, client: OpenAI | None = None) -> WeeklySumma
     parsed = response.output_parsed
     if parsed is None:
         raise LLMCallError("AI returned no usable summary.")
-    return parsed
+    # Enforce the no-em-dash rule on the free-text fields regardless of the prompt.
+    return parsed.model_copy(
+        update={
+            "headline": strip_em_dashes(parsed.headline),
+            "narrative": strip_em_dashes(parsed.narrative),
+            "recommendations": [strip_em_dashes(r) for r in parsed.recommendations],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +408,10 @@ def stream_chat_answer(
     """
     settings = get_settings()
     client = client or get_openai_client()
-    messages = [{"role": "system", "content": f"{_CHAT_RULES}\n\n{system_context}"}, *history]
+    messages = [
+        {"role": "system", "content": f"{_CHAT_RULES}\n{_NO_EM_DASH_RULE}\n\n{system_context}"},
+        *history,
+    ]
 
     try:
         stream = client.chat.completions.create(
@@ -393,7 +432,9 @@ def stream_chat_answer(
                 continue
             delta = choices[0].delta.content
             if delta:
-                yield delta
+                # A dash is a single character within one token, so stripping
+                # per-token is safe and keeps the answer em-dash-free.
+                yield strip_em_dashes(delta)
     except openai.APIError as exc:
         logger.warning("OpenAI API error (chat): %s", exc)
         raise LLMCallError(f"AI service error: {exc}") from exc
@@ -433,7 +474,7 @@ def summarize_chat_session(transcript: str, *, client: OpenAI | None = None) -> 
         response = client.responses.create(
             model=settings.openai_model,
             reasoning=Reasoning(effort=cast(ReasoningEffort, settings.openai_reasoning_effort)),
-            instructions=_SESSION_SUMMARY_RULES,
+            instructions=f"{_SESSION_SUMMARY_RULES}\n{_NO_EM_DASH_RULE}",
             input=f"<chat>\n{transcript}\n</chat>",
             max_output_tokens=400,
         )
@@ -447,4 +488,4 @@ def summarize_chat_session(transcript: str, *, client: OpenAI | None = None) -> 
     text = (response.output_text or "").strip()
     if not text:
         raise LLMCallError("AI returned no usable session summary.")
-    return text
+    return strip_em_dashes(text)

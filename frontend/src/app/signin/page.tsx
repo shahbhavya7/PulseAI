@@ -16,7 +16,7 @@ import { GoogleIcon, AppleIcon } from "@/components/BrandIcons";
 import { PageTransition } from "@/components/motion";
 
 const ERROR_COPY: Record<string, string> = {
-  access_denied: "You cancelled the sign-in. No problem — try again when ready.",
+  access_denied: "You cancelled the sign-in. No problem, try again when ready.",
   provider_unavailable: "That sign-in provider isn't configured on the server.",
   missing_claims: "The provider didn't share an email, so we can't sign you in.",
   oauth_failed: "Sign-in didn't complete. Please try again.",

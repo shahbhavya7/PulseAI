@@ -193,7 +193,7 @@ export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
           formatter={(value: number, name: string) =>
             name === "Sentiment"
               ? [`${value} (${sentimentWord(value)})`, name]
-              : [value, "Urgency (0–1)"]
+              : [value, "Urgency (0 to 1)"]
           }
         />
         <Area

@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PulseAI — Customer Signal Dashboard",
+  title: "PulseAI: Customer Signal Dashboard",
   description: "Upload customer tickets, see what matters this week.",
 };
 

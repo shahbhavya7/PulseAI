@@ -94,7 +94,7 @@ export default function UploadPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Upload a file of customer messages or paste a single ticket. Each one is
           cleaned, stored, and{" "}
-          <span className="text-foreground">classified automatically</span> — no extra
+          <span className="text-foreground">classified automatically</span>, no extra
           step needed.
         </p>
       </header>
@@ -238,7 +238,7 @@ function PasteForm({
             type="text"
             value={title}
             onChange={(e) => onTitle(e.target.value)}
-            placeholder="e.g. Angry customer — refund"
+            placeholder="e.g. Angry customer, refund"
             disabled={busy}
             className="w-full rounded-[var(--radius)] border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
@@ -303,7 +303,7 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
             <Sparkles className="size-4 shrink-0" />
             <span>
               Auto-classified {summary.analyzed_count}{" "}
-              {summary.analyzed_count === 1 ? "ticket" : "tickets"} — categories,
+              {summary.analyzed_count === 1 ? "ticket" : "tickets"}. Categories,
               sentiment, and themes are ready on the dashboard.
             </span>
           </div>
@@ -417,7 +417,7 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
         c.created > 0 && (
           <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
             <PartyPopper className="size-4 text-[var(--color-feature_request)]" />
-            Clean batch — nothing needed flagging.
+            Clean batch, nothing needed flagging.
           </p>
         )}
     </div>

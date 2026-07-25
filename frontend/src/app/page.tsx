@@ -59,7 +59,7 @@ export default function OverviewPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            What your customers are telling you — at a glance.
+            What your customers are telling you, at a glance.
           </p>
         </div>
         <WeekSelector value={week} onChange={setWeek} />
@@ -174,7 +174,7 @@ function StatsView({
         </MotionItem>
         <MotionItem>
           <StatTile
-            value={topCategory ? topCategory.replace(/_/g, " ") : "—"}
+            value={topCategory ? topCategory.replace(/_/g, " ") : "-"}
             label="Most common"
             tone={topCategory ?? undefined}
             icon={<TopIcon />}
@@ -182,7 +182,7 @@ function StatsView({
         </MotionItem>
         <MotionItem>
           <StatTile
-            value={latest ? sentimentWord(sentiment) : "—"}
+            value={latest ? sentimentWord(sentiment) : "-"}
             label={latest ? `Sentiment (${sentiment.toFixed(2)})` : "Sentiment"}
             tone="question"
             icon={<TrendingUp />}
@@ -217,7 +217,7 @@ function StatsView({
         <Card
           icon={<AlertOctagon />}
           title="Urgency breakdown"
-          hint="Issues by severity — click a bar to see those tickets."
+          hint="Issues by severity. Click a bar to see those tickets."
         >
           <UrgencyChart
             data={data.urgency_counts}
@@ -245,7 +245,7 @@ function StatsView({
       <Card
         icon={<Tags />}
         title="Top themes"
-        hint="The recurring topics across issues — biggest drivers first."
+        hint="The recurring topics across issues, biggest drivers first."
       >
         {urgentTheme && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-sm">

@@ -62,7 +62,7 @@ export function buildHeroInsight(
       const jump = Math.round(((count - prevCount) / prevCount) * 100);
       if (jump >= 15) {
         return {
-          headline: `${humanize(cat)} issues up ${jump}% vs last week — now the #1 driver.`,
+          headline: `${humanize(cat)} issues up ${jump}% vs last week, now the #1 driver.`,
           detail: `${count} ${humanize(cat).toLowerCase()} issue${
             count === 1 ? "" : "s"
           } this week, up from ${prevCount}. Overall sentiment is ${sentimentWord(

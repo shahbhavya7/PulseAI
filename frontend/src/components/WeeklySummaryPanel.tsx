@@ -60,7 +60,7 @@ export function WeeklySummaryPanel({ week }: { week: string }) {
       <Card icon={<FileText />} title={`Weekly summary · ${week}`}>
         <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-white/10 bg-white/[0.02] p-6">
           <p className="text-sm text-muted-foreground">
-            Generate a plain-language recap of the week&apos;s tickets — the
+            Generate a plain-language recap of the week&apos;s tickets: the
             headline, what happened, and what to do next.
           </p>
           <Button onClick={onGenerate} disabled={generating}>

@@ -163,7 +163,7 @@ function TicketIdChip({ id }: { id: string }) {
     <button
       type="button"
       onClick={copy}
-      title={`Ticket ${id} — click to copy`}
+      title={`Ticket ${id} · click to copy`}
       className="group/id inline-flex items-center rounded-md bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
     >
       #{short}
