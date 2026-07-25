@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Line,
   ResponsiveContainer,
   Tooltip,
@@ -228,35 +229,63 @@ export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
   );
 }
 
-/** Top themes — horizontal bars, biggest first. The top theme is highlighted in
- *  cyan; the rest are muted so the #1 driver stands out. */
+/** Ramp a bar's colour by rank: the #1 driver is bright cyan, each lower rank
+ *  fades toward a dim slate, so the ranking is visible at a glance. */
+function themeBarColor(rank: number, total: number): string {
+  if (rank === 0) return CYAN;
+  // Interpolate opacity from ~0.62 (2nd) down to ~0.20 (last).
+  const t = total > 1 ? rank / (total - 1) : 0;
+  const opacity = 0.62 - t * 0.42;
+  return `rgba(64, 224, 224, ${opacity.toFixed(2)})`;
+}
+
+/** Top themes — horizontal bars, biggest first, on a cyan intensity ramp so the
+ *  ranking reads instantly. Count labels sit at the end of each bar. */
 export function ThemesChart({ data }: { data: ThemeCount[] }) {
   const rows = [...data]
     .sort((a, b) => b.count - a.count)
     .slice(0, 8)
-    .map((t) => ({ theme: t.theme, count: t.count }));
+    .map((t) => ({ theme: t.theme, label: humanize(t.theme), count: t.count }));
+  const max = rows[0]?.count ?? 1;
 
   return (
-    <ResponsiveContainer width="100%" height={Math.max(200, rows.length * 40)}>
+    <ResponsiveContainer width="100%" height={Math.max(220, rows.length * 46)}>
       <BarChart
         layout="vertical"
         data={rows}
-        margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
+        margin={{ top: 4, right: 40, bottom: 4, left: 8 }}
+        barCategoryGap="28%"
       >
-        <CartesianGrid stroke={GRID} horizontal={false} />
-        <XAxis type="number" allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} />
+        {/* No vertical grid lines — they clutter a ranked bar list. */}
+        <XAxis
+          type="number"
+          allowDecimals={false}
+          domain={[0, Math.max(1, max)]}
+          hide
+        />
         <YAxis
           type="category"
-          dataKey="theme"
+          dataKey="label"
           width={150}
-          tick={{ fill: AXIS, fontSize: 12 }}
+          tick={{ fill: "#c4ccda", fontSize: 12 }}
           tickLine={false}
+          axisLine={false}
         />
-        <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "#ffffff0d" }} />
+        <Tooltip
+          cursor={{ fill: "#ffffff0d" }}
+          content={<ClickableTooltip unit="Mentions" />}
+        />
         <Bar dataKey="count" radius={[0, 6, 6, 0]} name="Mentions" {...BAR_ANIM}>
           {rows.map((r, i) => (
-            <Cell key={r.theme} fill={i === 0 ? CYAN : "rgba(255,255,255,0.22)"} />
+            <Cell key={r.theme} fill={themeBarColor(i, rows.length)} />
           ))}
+          <LabelList
+            dataKey="count"
+            position="right"
+            offset={8}
+            fill="#8891a5"
+            fontSize={12}
+          />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

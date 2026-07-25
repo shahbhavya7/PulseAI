@@ -26,14 +26,29 @@ def _issue(themes: list[str], desc: str) -> Issue:
 
 
 def test_themes_ranked_by_count() -> None:
+    # Neutral labels that don't hit the synonym map, so this tests ranking only.
     issues = [
-        _issue(["login crash"], "cannot log in"),
-        _issue(["login crash"], "login broken"),
-        _issue(["billing error"], "charged twice"),
+        _issue(["missing order"], "order never arrived"),
+        _issue(["missing order"], "package lost"),
+        _issue(["wrong item shipped"], "got the wrong product"),
     ]
     result = aggregate_themes(cast(Session, None), USER, issues=issues, vector_store=None)
-    assert result[0].theme == "login crash" and result[0].count == 2
-    assert {t.theme for t in result} == {"login crash", "billing error"}
+    assert result[0].theme == "missing order" and result[0].count == 2
+    assert {t.theme for t in result} == {"missing order", "wrong item shipped"}
+
+
+def test_synonym_variants_fold_to_one_canonical_theme() -> None:
+    # Different phrasings of the same problem must aggregate into one theme, so
+    # adding more of the same complaint grows a single bar on the dashboard.
+    issues = [
+        _issue(["account access"], "can't log in"),
+        _issue(["login failure"], "sign-in rejected"),
+        _issue(["login-page error"], "password not accepted"),
+        _issue(["locked out of account"], "cannot access account"),
+    ]
+    result = aggregate_themes(cast(Session, None), USER, issues=issues, vector_store=None)
+    assert len(result) == 1
+    assert result[0].theme == "account access" and result[0].count == 4
 
 
 def test_near_identical_themes_are_merged() -> None:

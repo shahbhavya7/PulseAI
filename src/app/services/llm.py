@@ -135,8 +135,20 @@ Follow these rules exactly:
      urgency even if it says "no rush".
    - An angry, sarcastic, or profane message about a cosmetic problem is LOW
      urgency. Sarcastic praise ("love it, broke again") is negative sentiment.
-4. Themes must be SPECIFIC, reusable labels like "photo-upload crash" or
-   "duplicate-charge billing". Never vague buckets like "customer issues".
+4. Themes must be REUSABLE labels that recur verbatim across tickets, so the same
+   problem always gets the SAME label and aggregates. Prefer a short, canonical
+   noun phrase (2 to 3 words) describing the problem type, NOT the specific
+   wording of this ticket. Reuse a stable vocabulary, e.g.:
+   - login / sign-in / password / "can't access my account" -> "account access"
+   - charged twice / double charge / duplicate subscription -> "duplicate charge"
+   - refund / money back / chargeback -> "refund request"
+   - slow / laggy / freezes / times out -> "performance"
+   - crash / app closes / white screen -> "app crash"
+   - praise / thanks / compliments -> "positive feedback"
+   Never embed ticket-specific details (order ids, error codes, hex strings,
+   dates) in a theme. Never invent a new phrasing when an existing common label
+   fits. Avoid vague buckets like "customer issues"; 1 to 2 themes per issue is
+   plenty.
 5. Analyze the content regardless of language (including mixed-language tickets).
 6. Promotional spam / gibberish is category "other", low urgency, neutral
    sentiment, with a "spam" theme.

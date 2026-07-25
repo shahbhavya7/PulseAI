@@ -35,11 +35,63 @@ _MERGE_THRESHOLD = 0.82
 _EXAMPLES_PER_THEME = 3
 _QUOTE_MAX = 200
 
+# Fold common label variants to one canonical theme so semantically-identical
+# themes aggregate even when the wording differs (string similarity alone can't
+# tell that "login failure" == "account access"). Keyword -> canonical label.
+_THEME_SYNONYMS: dict[str, str] = {
+    "login": "account access",
+    "log in": "account access",
+    "sign in": "account access",
+    "sign-in": "account access",
+    "signin": "account access",
+    "password": "account access",
+    "locked out": "account access",
+    "account access": "account access",
+    "authentication": "account access",
+    "credential": "account access",
+    "duplicate charge": "duplicate charge",
+    "double charge": "duplicate charge",
+    "double charged": "duplicate charge",
+    "charged twice": "duplicate charge",
+    "duplicate subscription": "duplicate charge",
+    "duplicate-subscription": "duplicate charge",
+    "duplicate-charge": "duplicate charge",
+    "refund": "refund request",
+    "chargeback": "refund request",
+    "money back": "refund request",
+    "slow": "performance",
+    "lag": "performance",
+    "laggy": "performance",
+    "freeze": "performance",
+    "performance": "performance",
+    "timeout": "performance",
+    "times out": "performance",
+    "crash": "app crash",
+    "crashes": "app crash",
+    "white screen": "app crash",
+    "praise": "positive feedback",
+    "compliment": "positive feedback",
+    "positive feedback": "positive feedback",
+    "thank": "positive feedback",
+    "spam": "spam",
+    "gibberish": "spam",
+}
+
 
 def _normalise_theme(label: str) -> str:
-    """Lowercase, strip punctuation edges, collapse whitespace."""
-    cleaned = re.sub(r"\s+", " ", label.strip().lower())
-    return cleaned.strip(" .,-—:;")
+    """Lowercase, strip punctuation edges, collapse whitespace, canonicalise.
+
+    A theme is folded to a canonical label when it contains a known synonym
+    keyword (e.g. "login-page error" -> "account access"), so the same problem
+    aggregates regardless of the exact phrasing the model chose.
+    """
+    cleaned = re.sub(r"\s+", " ", label.strip().lower()).strip(" .,-—:;")
+    if not cleaned:
+        return cleaned
+    for keyword, canonical in _THEME_SYNONYMS.items():
+        if keyword in cleaned:
+            return canonical
+    return cleaned
 
 
 def issues_for_period(db: Session, user_id: UUID, week: str | None) -> list[Issue]:

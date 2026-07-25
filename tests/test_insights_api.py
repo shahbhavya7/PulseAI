@@ -109,9 +109,11 @@ def test_upload_to_summary_to_stats(
     assert body["issue_count"] == 2
     assert body["metrics"]["total_issues"] == 2
     assert body["metrics"]["by_category"] == {"bug": 1, "incident": 1}
+    # Theme labels are canonicalised so variants aggregate: "photo-upload crash"
+    # folds to "app crash", "duplicate-charge billing" to "duplicate charge".
     assert {t["theme"] for t in body["themes"]} == {
-        "photo-upload crash",
-        "duplicate-charge billing",
+        "app crash",
+        "duplicate charge",
     }
     # The weekly summary is returned as scannable bullet points, not one para.
     assert body["highlights"] == [
