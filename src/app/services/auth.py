@@ -157,9 +157,7 @@ def upsert_oauth_user(
     email = email.strip().lower()
 
     user = db.scalar(
-        select(User).where(
-            User.oauth_provider == provider, User.oauth_subject == subject
-        )
+        select(User).where(User.oauth_provider == provider, User.oauth_subject == subject)
     )
     if user is not None:
         # Keep profile fields fresh, but never downgrade a known name to None.
@@ -218,9 +216,7 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def register_user(
-    db: Session, *, email: str, password: str, full_name: str | None
-) -> User:
+def register_user(db: Session, *, email: str, password: str, full_name: str | None) -> User:
     """Create a new email/password user.
 
     Raises :class:`CredentialsError` if the password is too short or the email is

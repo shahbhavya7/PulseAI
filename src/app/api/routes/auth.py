@@ -97,9 +97,7 @@ def register(payload: RegisterRequest, db: DbSession) -> JSONResponse:
         )
     except CredentialsError as exc:
         code = (
-            status.HTTP_409_CONFLICT
-            if exc.code == "email_taken"
-            else status.HTTP_400_BAD_REQUEST
+            status.HTTP_409_CONFLICT if exc.code == "email_taken" else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(
             status_code=code, detail={"code": exc.code, "message": exc.message}
@@ -135,9 +133,7 @@ async def login(provider: str, request: Request) -> RedirectResponse:
         )
     client = get_oauth().create_client(provider)
     assert client is not None
-    redirect: RedirectResponse = await client.authorize_redirect(
-        request, _redirect_uri(provider)
-    )
+    redirect: RedirectResponse = await client.authorize_redirect(request, _redirect_uri(provider))
     return redirect
 
 

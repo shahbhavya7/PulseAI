@@ -93,9 +93,7 @@ def test_retrieval_returns_facts_and_examples(
     _seed_analyzed_ticket(client, f"crash and double charge {uuid4().hex}")
 
     with get_sessionmaker()() as db:
-        ctx = retrieve_context(
-            db, UUID(uid), "why is the app crashing?", vector_store=_FakeStore()
-        )
+        ctx = retrieve_context(db, UUID(uid), "why is the app crashing?", vector_store=_FakeStore())
     assert ctx.stats is not None
     assert ctx.stats.total_issues == 2
     assert ctx.semantic_ok
@@ -171,9 +169,7 @@ def test_memory_is_user_scoped(as_user: Callable[[str], str]) -> None:
         )
 
         # User B recalls nothing from A.
-        b_recall = chat_memory.recall_summaries(
-            db, UUID(b), "dark mode", vector_store=_FakeStore()
-        )
+        b_recall = chat_memory.recall_summaries(db, UUID(b), "dark mode", vector_store=_FakeStore())
         assert b_recall == []
 
 
@@ -228,9 +224,7 @@ def test_chat_session_requires_auth(client: TestClient) -> None:
     assert resp.status_code == 401
 
 
-def test_chat_other_users_session_404(
-    client: TestClient, as_user: Callable[[str], str]
-) -> None:
+def test_chat_other_users_session_404(client: TestClient, as_user: Callable[[str], str]) -> None:
     # Session created by A …
     as_user(_new_user("A"))
     sid = client.post("/chat/sessions", json={}).json()["id"]

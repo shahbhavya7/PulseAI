@@ -99,9 +99,7 @@ def list_tickets(
         .order_by(Ticket.created_at.desc())
     )
 
-    total = db.scalar(
-        select(func.count()).select_from(ticket_ids_stmt.subquery())
-    ) or 0
+    total = db.scalar(select(func.count()).select_from(ticket_ids_stmt.subquery())) or 0
 
     page_ids = list(db.scalars(ticket_ids_stmt.limit(limit).offset(offset)).all())
     if not page_ids:
@@ -109,9 +107,7 @@ def list_tickets(
 
     tickets = list(
         db.scalars(
-            select(Ticket)
-            .where(Ticket.id.in_(page_ids))
-            .order_by(Ticket.created_at.desc())
+            select(Ticket).where(Ticket.id.in_(page_ids)).order_by(Ticket.created_at.desc())
         ).all()
     )
 

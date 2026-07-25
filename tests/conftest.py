@@ -43,9 +43,7 @@ def _no_openai_key(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # fully isolated between tests.
     store: dict[str, TicketAnalysis] = {}
     monkeypatch.setattr(pipeline, "get_cached_analysis", store.get)
-    monkeypatch.setattr(
-        pipeline, "set_cached_analysis", lambda h, a: store.__setitem__(h, a)
-    )
+    monkeypatch.setattr(pipeline, "set_cached_analysis", lambda h, a: store.__setitem__(h, a))
 
     llm.get_openai_client.cache_clear()
     yield

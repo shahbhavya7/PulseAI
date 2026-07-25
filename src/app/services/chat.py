@@ -109,11 +109,14 @@ def _format_context(ctx: ChatContext, memory: list[str]) -> str:
         cats = ", ".join(f"{k}: {v}" for k, v in s.category_distribution.items()) or "none"
         sev = ", ".join(f"{k}: {v}" for k, v in s.urgency_counts.items()) or "none"
         themes = ", ".join(f"{t.theme} ({t.count})" for t in s.top_themes[:8]) or "none"
-        trend = "; ".join(
-            f"{p.week}: sentiment {p.avg_sentiment:.2f}, "
-            f"urgency {p.avg_urgency:.2f}, {p.issue_count} issues"
-            for p in s.sentiment_over_time[-6:]
-        ) or "none"
+        trend = (
+            "; ".join(
+                f"{p.week}: sentiment {p.avg_sentiment:.2f}, "
+                f"urgency {p.avg_urgency:.2f}, {p.issue_count} issues"
+                for p in s.sentiment_over_time[-6:]
+            )
+            or "none"
+        )
         parts.append(
             "METRICS (exact, from the user's data):\n"
             f"- total issues: {s.total_issues}\n"
@@ -134,8 +137,7 @@ def _format_context(ctx: ChatContext, memory: list[str]) -> str:
 
     if memory:
         parts.append(
-            "NOTES FROM THE USER'S EARLIER SESSIONS:\n"
-            + "\n".join(f"- {m}" for m in memory)
+            "NOTES FROM THE USER'S EARLIER SESSIONS:\n" + "\n".join(f"- {m}" for m in memory)
         )
 
     body = "\n\n".join(parts) if parts else "No data is available for this user yet."

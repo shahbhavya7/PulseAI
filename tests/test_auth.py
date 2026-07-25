@@ -149,9 +149,7 @@ def test_register_then_login_and_me(client: TestClient, require_db: None) -> Non
 
     # A fresh client (no cookie) can log in with the same credentials.
     with TestClient(client.app) as other:
-        login = other.post(
-            "/auth/login/email", json={"email": email, "password": "supersecret1"}
-        )
+        login = other.post("/auth/login/email", json={"email": email, "password": "supersecret1"})
         assert login.status_code == 200
         assert login.json()["email"] == email
 
@@ -177,9 +175,7 @@ def test_register_weak_password_400(client: TestClient, require_db: None) -> Non
 def test_login_wrong_password_401(client: TestClient, require_db: None) -> None:
     email = f"{uuid4().hex}@example.com"
     client.post("/auth/register", json={"email": email, "password": "supersecret1"})
-    resp = client.post(
-        "/auth/login/email", json={"email": email, "password": "not-the-password"}
-    )
+    resp = client.post("/auth/login/email", json={"email": email, "password": "not-the-password"})
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "invalid_credentials"
 

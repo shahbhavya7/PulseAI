@@ -1,25 +1,73 @@
-# PulseAI Backend
+# PulseAI
 
-Production-quality FastAPI backend. **Issue** is the atomic unit: a ticket has many issues.
+A production-quality customer-ticket triage system: a **FastAPI** backend that
+classifies tickets with an LLM (grounded, structured output), aggregates weekly
+insight, and answers questions over the data via a grounded chat — plus a
+**Next.js** dashboard. **Issue** is the atomic unit: a ticket has many issues.
 
-- Sync SQLAlchemy 2.0 + Alembic
-- `StrEnum` values stored as `String` columns
-- pydantic-settings + `.env` (no hardcoded secrets)
-- PostgreSQL (pgvector image) + Redis
-- ruff + mypy + pytest
+- FastAPI · sync SQLAlchemy 2.0 + Alembic · PostgreSQL (pgvector) + Redis
+- OpenAI structured outputs + embeddings; hybrid (SQL + vector) retrieval
+- Google/Apple OIDC **and** email/password auth; per-user data isolation
+- Next.js (App Router) + Tailwind + Recharts dashboard
+- ruff + mypy(strict) + pytest; graceful degradation on every external call
 
-## Quick start
+## Cold start (clone → running in ~5 minutes)
+
+**Prereqs:** Docker, Python 3.12 (conda or venv), Node 20+. That's it.
 
 ```bash
+# 1. Config — copy the template; the defaults boot everything locally.
 cp .env.example .env
-docker compose up -d                       # Postgres (pgvector) + Redis
-python -m venv .venv && source .venv/bin/activate
+
+# 2. Infra — Postgres (pgvector) + Redis.
+docker compose up -d
+
+# 3. Backend deps + schema.
+conda create -y -n pulseai python=3.12 && conda activate pulseai   # or: python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-alembic upgrade head                       # enables pgvector + creates tables
-uvicorn app.main:app --reload --app-dir src
+alembic upgrade head                # enables pgvector, creates tables, seeds dev-user password
+
+# 4. Run backend + dashboard together (Ctrl-C stops both).
+./scripts/start-dev.sh              # backend :8000 + frontend :3000 (installs frontend deps on first run)
 ```
 
-Then hit http://localhost:8000/health and http://localhost:8000/ready.
+Open **http://localhost:3000**, sign in with **`dev@pulseai.local` / `pulseai-dev`**
+(email sign-in works with zero OAuth setup), and you're on the dashboard.
+
+Backend only: `uvicorn app.main:app --reload --app-dir src`, then check
+http://localhost:8000/health and http://localhost:8000/ready.
+
+> **AI features** (classification, weekly summaries, chat) need
+> `PULSE_OPENAI_API_KEY` in `.env`. Without it the app still runs end-to-end —
+> upload/browse/auth work, and AI calls degrade to a clean 503 instead of
+> crashing. See **Graceful degradation** below.
+
+## Docs
+
+| Doc | What |
+| --- | --- |
+| [docs/phase-0-foundations.md](docs/phase-0-foundations.md) | scaffold, models, config, health |
+| [docs/phase-1-ingestion.md](docs/phase-1-ingestion.md) | upload → parse/clean/redact/dedupe |
+| [docs/phase-2-ai-pipeline.md](docs/phase-2-ai-pipeline.md) | LLM classification (structured, few-shot) |
+| [docs/phase-3-insights.md](docs/phase-3-insights.md) | embeddings, themes, weekly summary, stats |
+| [docs/phase-4-dashboard.md](docs/phase-4-dashboard.md) | Next.js dashboard |
+| [docs/phase-5-auth.md](docs/phase-5-auth.md) | Google/Apple OIDC + email/password |
+| [docs/phase-6-chat.md](docs/phase-6-chat.md) | hybrid retrieval chat + cross-session memory |
+| [docs/phase-7-hardening.md](docs/phase-7-hardening.md) | failure hardening + evidence |
+| [docs/accuracy.md](docs/accuracy.md) | classifier accuracy on a blind labelled set |
+| [DEMO.md](DEMO.md) | mentor click-path mapped to the rubric |
+
+## Graceful degradation
+
+Every external call fails soft, never crashing the request:
+
+- **OpenAI down / no key** → analysis + summaries return **503 `ai_unavailable`**;
+  chat streams a friendly "assistant unavailable" message; embeddings are skipped
+  (issues kept, flagged `needs_reembed`).
+- **Redis down** → the AI cache silently misses (best-effort); requests still work.
+- **Database down** → `/ready` reports **503** with the per-dependency breakdown
+  (never raises); a domain request hitting a DB error returns a clean **503
+  `database_unavailable`** via the global handler, not a leaked 500.
 
 ### Start everything (backend + dashboard)
 

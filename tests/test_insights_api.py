@@ -130,18 +130,14 @@ def test_stats_filter_needs_manual_review(
     monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
     monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
     as_user(_new_user())
-    _analyze_ticket(
-        client, f"the checkout page keeps failing on submit case {uuid4().hex}"
-    )
+    _analyze_ticket(client, f"the checkout page keeps failing on submit case {uuid4().hex}")
     week = iso_week()
     # confidence 0.9 → not flagged for review, so this filter yields zero.
     stats = client.get(f"/stats?week={week}&needs_manual_review=true").json()
     assert stats["total_issues"] == 0
 
 
-def test_summary_no_issues_returns_404(
-    client: TestClient, as_user: Callable[[str], str]
-) -> None:
+def test_summary_no_issues_returns_404(client: TestClient, as_user: Callable[[str], str]) -> None:
     as_user(_new_user())
     resp = client.post("/summaries/2000-W01")
     assert resp.status_code == 404

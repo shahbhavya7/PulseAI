@@ -54,9 +54,7 @@ class Settings(BaseSettings):
     project_name: str = "PulseAI"
     # Browser origins allowed to call the API (the Next.js dev server by default).
     # Override with PULSE_CORS_ORIGINS as a comma-separated list.
-    cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"]
-    )
+    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
 
     @model_validator(mode="before")
     @classmethod

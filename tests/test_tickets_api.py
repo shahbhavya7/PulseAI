@@ -136,18 +136,14 @@ def test_tickets_sentiment_filter(
     assert [i["category"] for i in ticket["issues"]] == ["feature_request"]
 
 
-def test_tickets_invalid_category_is_422(
-    client: TestClient, as_user: Callable[[str], str]
-) -> None:
+def test_tickets_invalid_category_is_422(client: TestClient, as_user: Callable[[str], str]) -> None:
     as_user(_new_user())
     resp = client.get("/tickets?category=nonsense")
     assert resp.status_code == 422
     assert resp.json()["detail"]["code"] == "invalid_filter"
 
 
-def test_tickets_empty_for_new_user(
-    client: TestClient, as_user: Callable[[str], str]
-) -> None:
+def test_tickets_empty_for_new_user(client: TestClient, as_user: Callable[[str], str]) -> None:
     as_user(_new_user())
     resp = client.get("/tickets")
     assert resp.status_code == 200

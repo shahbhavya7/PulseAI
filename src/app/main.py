@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app import __version__
+from app.api.errors import register_error_handlers
 from app.api.routes import api_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -67,6 +68,9 @@ def create_app() -> FastAPI:
         same_site="lax",
         https_only=settings.session_cookie_secure,
     )
+    # Turn unhandled infrastructure failures (DB down mid-request, etc.) into
+    # clean 5xx JSON instead of leaked stack traces.
+    register_error_handlers(app)
     # Health routes live at the root; domain routes sit under the API prefix.
     app.include_router(api_router)
     app.include_router(api_router, prefix=settings.api_prefix)
