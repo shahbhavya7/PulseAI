@@ -42,6 +42,7 @@ def test_ticket_analysis_round_trips_json() -> None:
     original = TicketAnalysis(
         issues=[
             {  # type: ignore[list-item]
+                "is_valid_ticket": True,
                 "summary": "App crashes on photo upload",
                 "classification": {"category": "bug", "confidence": 0.9},
                 "sentiment_urgency": {

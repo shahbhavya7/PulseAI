@@ -124,10 +124,13 @@ def generate_summary(
         db.add(summary)
 
     summary.status = SummaryStatus.COMPLETE
-    summary.content = content.narrative
+    # `content` (Text column) keeps the joined bullets so plain-text consumers and
+    # older rows still work; the structured bullets live in `stats`.
+    summary.content = "\n".join(content.highlights)
     summary.issue_count = metrics.total_issues
     summary.stats = {
         "headline": content.headline,
+        "highlights": content.highlights,
         "recommendations": content.recommendations,
         "themes": [t.model_dump() for t in themes],
         "metrics": metrics.model_dump(),
@@ -148,12 +151,16 @@ def get_summary(db: Session, user: User, week: str) -> WeeklySummary | None:
 def to_response(summary: WeeklySummary) -> SummaryResponse:
     """Shape a stored summary row into the API response."""
     stats = summary.stats or {}
+    content = summary.content or ""
+    # Prefer structured bullets; fall back to splitting the joined text (legacy).
+    highlights = stats.get("highlights") or [ln for ln in content.splitlines() if ln.strip()]
     return SummaryResponse(
         week=summary.week,
         status=str(summary.status),
         issue_count=summary.issue_count,
         headline=stats.get("headline", ""),
-        narrative=summary.content or "",
+        highlights=highlights,
+        narrative=content,
         recommendations=stats.get("recommendations", []),
         themes=[ThemeCount(**t) for t in stats.get("themes", [])],
         metrics=SummaryMetrics(**stats["metrics"])

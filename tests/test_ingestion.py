@@ -218,9 +218,30 @@ def test_pii_and_boilerplate_flags_propagate() -> None:
     assert "john@example.com" not in item.stored_text
 
 
-def test_one_word_row_created_but_flagged() -> None:
-    item = run_pipeline(_csv_result("broken"), user_id=USER).prepared[0]
-    assert IssueFlag.ONE_WORD.value in item.flags and item.needs_manual_review is True
+def test_one_word_row_is_discarded_as_non_analyzable() -> None:
+    # One-word content has nothing to analyze: discarded, not stored.
+    result = run_pipeline(_csv_result("broken"), user_id=USER)
+    assert result.prepared == []
+    assert [s.reason for s in result.skipped] == [SkipReason.NON_ANALYZABLE.value]
+
+
+def test_greeting_only_row_is_discarded_as_non_analyzable() -> None:
+    result = run_pipeline(_csv_result("hi hello"), user_id=USER)
+    assert result.prepared == []
+    assert [s.reason for s in result.skipped] == [SkipReason.NON_ANALYZABLE.value]
+
+
+def test_gibberish_row_is_discarded_as_non_analyzable() -> None:
+    result = run_pipeline(_csv_result("asdkjaskjd !!! 123 @#$"), user_id=USER)
+    assert result.prepared == []
+    assert [s.reason for s in result.skipped] == [SkipReason.NON_ANALYZABLE.value]
+
+
+def test_real_ticket_is_still_stored() -> None:
+    # A substantive message is unaffected by the junk-discard rule.
+    result = run_pipeline(_csv_result("The checkout page crashes when I pay"), user_id=USER)
+    assert len(result.prepared) == 1
+    assert result.skipped == []
 
 
 def test_text_blob_splits_into_multiple_items() -> None:

@@ -45,8 +45,11 @@ export function TicketCard({
     setBusy(true);
     setError(null);
     try {
-      await analyzeTicket(ticket.id);
+      const res = await analyzeTicket(ticket.id);
+      // The model can judge a ticket as not real and discard it. Refetching drops
+      // it from the list; no error, that's the intended outcome.
       onChanged();
+      if (res.source === "discarded") return;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Analysis failed. Try again.");
     } finally {

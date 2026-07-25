@@ -18,6 +18,7 @@ import {
   Copy,
   FileX2,
   Ban,
+  MessageSquareOff,
   type LucideIcon,
 } from "lucide-react";
 
@@ -40,6 +41,7 @@ export const SKIP_REASON_ICON: Record<string, LucideIcon> = {
   duplicate: Copy,
   blank: Ban,
   empty_after_clean: FileX2,
+  non_analyzable: MessageSquareOff,
 };
 
 /** The CSS colour token for a category or severity (matches globals.css). */

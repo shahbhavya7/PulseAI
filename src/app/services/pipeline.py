@@ -83,6 +83,7 @@ def _junk_analysis() -> TicketAnalysis:
     return TicketAnalysis(
         issues=[
             IssueAnalysis(
+                is_valid_ticket=False,
                 summary="(no analyzable content)",
                 classification=Classification(category=IssueCategory.OTHER, confidence=0.0),
                 sentiment_urgency=SentimentUrgency(
@@ -201,13 +202,26 @@ def analyze_and_persist(
     text = ticket.body or ticket.title
     outcome = analyze(text, user_id_str=str(ticket.owner_id), analyzer=analyzer)
 
+    # The model judges each fanned-out issue as a real ticket or not. Keep only
+    # the valid ones; a greeting / gibberish / non-issue is marked invalid and
+    # dropped. If NOTHING valid remains, the whole ticket is discarded below.
+    valid_issues = [item for item in outcome.analysis.issues if item.is_valid_ticket]
+
     # Replace prior issues for this ticket (fan-out is authoritative).
     db.execute(delete(Issue).where(Issue.ticket_id == ticket.id))
+
+    if not valid_issues:
+        # Not a real ticket in the model's judgement — remove it entirely so it
+        # never appears on the dashboard.
+        db.delete(ticket)
+        db.commit()
+        logger.info("Discarded ticket %s: model judged it not a real ticket", ticket.id)
+        return []
 
     week = iso_week()
     now = datetime.now(UTC)
     created: list[Issue] = []
-    for index, item in enumerate(outcome.analysis.issues):
+    for index, item in enumerate(valid_issues):
         cls = item.classification
         su = item.sentiment_urgency
         needs_review = (

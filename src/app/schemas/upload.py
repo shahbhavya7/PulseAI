@@ -21,6 +21,7 @@ class SkipReason(StrEnum):
     BLANK = "blank"  # empty row / whitespace-only source
     EMPTY_AFTER_CLEAN = "empty_after_clean"  # became empty once boilerplate removed
     DUPLICATE = "duplicate"  # content_hash already seen (this batch or DB)
+    NON_ANALYZABLE = "non_analyzable"  # one-word / greeting / gibberish — nothing to analyze
 
 
 class PasteTicketRequest(APIModel):
@@ -61,9 +62,12 @@ class UploadCounts(APIModel):
 
     detected: int = Field(description="Candidate items found (excl. blank rows)")
     created: int = Field(description="Tickets/issues persisted")
-    skipped: int = Field(description="Items dropped (blank, empty, or duplicate)")
+    skipped: int = Field(description="Items dropped (blank, empty, duplicate, non-analyzable)")
     flagged: int = Field(description="Created items carrying flags / manual review")
     duplicates: int = Field(description="Items skipped as duplicates")
+    non_analyzable: int = Field(
+        default=0, description="Items discarded as one-word / greeting / gibberish"
+    )
     blanks: int = Field(description="Blank source rows skipped at parse time")
 
 

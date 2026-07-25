@@ -88,11 +88,14 @@ export function buildHeroInsight(
     };
   }
 
-  // 3. Summary's own headline if we have one.
+  // 3. Summary's own headline if we have one. Detail = the first highlight
+  //    bullet (falling back to the first sentence of the joined narrative).
   if (summary?.headline) {
+    const firstHighlight =
+      summary.highlights?.[0] ?? summary.narrative.split(". ").slice(0, 1).join(". ") + ".";
     return {
       headline: summary.headline,
-      detail: summary.narrative.split(". ").slice(0, 1).join(". ") + ".",
+      detail: firstHighlight,
       tone: sentiment <= -0.2 ? "warning" : "neutral",
     };
   }

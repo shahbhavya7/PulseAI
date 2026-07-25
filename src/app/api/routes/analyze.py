@@ -56,6 +56,7 @@ def analyze_ticket(ticket_id: UUID, user: CurrentUser, db: DbSession) -> TicketA
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No ticket with id {ticket_id}",
         )
+    ticket_id_saved = ticket.id
     try:
         issues = analyze_and_persist(db, ticket)
     except LLMError as exc:
@@ -64,9 +65,11 @@ def analyze_ticket(ticket_id: UUID, user: CurrentUser, db: DbSession) -> TicketA
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"code": "ai_unavailable", "message": exc.message},
         ) from exc
+    # An empty result means the model judged this not a real ticket and it was
+    # deleted. Report that rather than a misleading "persisted, 0 issues".
     return TicketAnalyzeResponse(
-        ticket_id=ticket.id,
-        source="persisted",
+        ticket_id=ticket_id_saved,
+        source="persisted" if issues else "discarded",
         created=len(issues),
         issues=[
             AnalyzedIssueOut(

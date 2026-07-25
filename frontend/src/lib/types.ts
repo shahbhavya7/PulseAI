@@ -6,7 +6,11 @@
 
 // ---- Uploads (POST /uploads) ----------------------------------------------
 
-export type SkipReason = "blank" | "empty_after_clean" | "duplicate";
+export type SkipReason =
+  | "blank"
+  | "empty_after_clean"
+  | "duplicate"
+  | "non_analyzable";
 
 export interface CreatedItem {
   source_ref: string;
@@ -30,6 +34,7 @@ export interface UploadCounts {
   skipped: number;
   flagged: number;
   duplicates: number;
+  non_analyzable: number;
   blanks: number;
 }
 
@@ -91,6 +96,7 @@ export interface SummaryResponse {
   status: string;
   issue_count: number;
   headline: string;
+  highlights: string[];
   narrative: string;
   recommendations: string[];
   themes: ThemeCount[];

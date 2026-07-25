@@ -182,6 +182,80 @@ def is_blank(value: object) -> bool:
 # A token with at least one letter (tells words from punctuation/numbers).
 _WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
 
+# Greeting / filler words that carry no issue on their own. A short message made
+# up ENTIRELY of these (e.g. "hi", "hi hello", "ok thanks") has nothing to
+# analyze and is treated as non-analyzable junk.
+_FILLER_WORDS = frozenset(
+    {
+        "hi",
+        "hii",
+        "hiii",
+        "hello",
+        "hey",
+        "heya",
+        "yo",
+        "hola",
+        "ok",
+        "okay",
+        "k",
+        "kk",
+        "thanks",
+        "thank",
+        "thankyou",
+        "thx",
+        "ty",
+        "please",
+        "pls",
+        "plz",
+        "test",
+        "testing",
+        "hmm",
+        "meh",
+        "fine",
+        "cool",
+        "nice",
+        "yes",
+        "no",
+        "yeah",
+        "nope",
+        "sup",
+        "greetings",
+        "good",
+        "morning",
+        "afternoon",
+        "evening",
+    }
+)
+# Below this many words, a message that is only filler words is non-analyzable.
+_FILLER_MAX_WORDS = 4
+
+_VOWELS = frozenset("aeiouy")
+# A run of this many consecutive consonants is unusual for a real word.
+_MAX_CONSONANT_RUN = 4
+
+
+def _is_wordlike(word: str) -> bool:
+    """Heuristic: does ``word`` look like a real (pronounceable) word?
+
+    Short words are accepted. Longer tokens are rejected when they have no vowels
+    or an unnaturally long consonant run (e.g. "asdkjaskjd", "qwertyzxcv") — the
+    signature of keyboard-mash gibberish.
+    """
+    w = word.lower()
+    if len(w) <= 3:
+        return True  # too short to judge; treat as real
+    letters = [c for c in w if c.isalpha()]
+    if not letters:
+        return False
+    if not any(c in _VOWELS for c in letters):
+        return False
+    run = 0
+    for c in letters:
+        run = run + 1 if c not in _VOWELS else 0
+        if run >= _MAX_CONSONANT_RUN:
+            return False
+    return True
+
 
 @dataclass
 class ContentClass:
@@ -215,11 +289,25 @@ def classify_content(text: str) -> ContentClass:
             flags=[IssueFlag.ONE_WORD.value, IssueFlag.JUNK.value],
         )
 
+    # A short message made up only of greeting/filler words ("hi hello", "ok
+    # thanks") has nothing substantive to analyze.
+    lowered = [w.lower() for w in words]
+    if len(words) <= _FILLER_MAX_WORDS and all(w in _FILLER_WORDS for w in lowered):
+        return ContentClass(is_junk=True, confidence=0.2, flags=[IssueFlag.JUNK.value])
+
     # Ratio of "wordy" characters to non-space characters. Low = gibberish → junk.
     letters = sum(len(w) for w in words)
     non_space = len(re.sub(r"\s", "", stripped))
     letter_ratio = letters / non_space if non_space else 0.0
     if letter_ratio < 0.5:
+        return ContentClass(is_junk=True, confidence=0.2, flags=[IssueFlag.JUNK.value])
+
+    # Meaningful = a real, pronounceable word that isn't filler. A short message
+    # with no meaningful words is junk (e.g. "asdkjaskjd test test 123" — filler
+    # + gibberish + numbers). Long messages are trusted; a stray nonsense token in
+    # a real sentence is fine.
+    meaningful = sum(1 for w in lowered if w not in _FILLER_WORDS and _is_wordlike(w))
+    if len(words) <= 6 and meaningful == 0:
         return ContentClass(is_junk=True, confidence=0.2, flags=[IssueFlag.JUNK.value])
 
     confidence = min(0.95, 0.6 + 0.05 * len(tokens))

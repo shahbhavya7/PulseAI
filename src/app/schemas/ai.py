@@ -112,6 +112,7 @@ class Themes(_AIModel):
 class IssueAnalysis(_AIModel):
     """The full analysis of one distinct issue split out of a ticket."""
 
+    is_valid_ticket: bool  # False for greetings/gibberish/non-issues → discarded
     summary: str  # one-line description of THIS issue, in your own words
     classification: Classification
     sentiment_urgency: SentimentUrgency

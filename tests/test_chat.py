@@ -41,6 +41,7 @@ class _FakeStore:
 def _two_issues(_text: str) -> TicketAnalysis:
     def mk(summary: str, category: str, urgency: str, theme: str) -> IssueAnalysis:
         return IssueAnalysis(
+            is_valid_ticket=True,
             summary=summary,
             classification=Classification(category=category, confidence=0.9),  # type: ignore[arg-type]
             sentiment_urgency=SentimentUrgency(

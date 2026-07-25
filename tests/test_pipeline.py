@@ -28,6 +28,7 @@ def _analysis(summary: str = "The app crashes on login.") -> TicketAnalysis:
     return TicketAnalysis(
         issues=[
             IssueAnalysis(
+                is_valid_ticket=True,
                 summary=summary,
                 classification=Classification(category="bug", confidence=0.9),  # type: ignore[arg-type]
                 sentiment_urgency=SentimentUrgency(

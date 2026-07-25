@@ -27,13 +27,13 @@ class SummaryMetrics(APIModel):
 
 
 class WeeklySummaryContent(BaseModel):
-    """The LLM's structured narrative for a week (grounded themes/metrics are
+    """The LLM's structured brief for a week (grounded themes/metrics are
     computed separately and passed in as context)."""
 
     model_config = ConfigDict(extra="forbid")
 
     headline: str  # one punchy line a VP can read at a glance
-    narrative: str  # a few sentences: what happened, what matters, what's trending
+    highlights: list[str]  # 3-6 scannable bullet points: what happened / what matters
     recommendations: list[str]  # concrete, actionable next steps
 
 
@@ -44,7 +44,8 @@ class SummaryResponse(APIModel):
     status: str
     issue_count: int
     headline: str
-    narrative: str
+    highlights: list[str]  # the week's key points, as bullets
+    narrative: str  # highlights joined into text (legacy/compat + plain fallback)
     recommendations: list[str]
     themes: list[ThemeCount]
     metrics: SummaryMetrics

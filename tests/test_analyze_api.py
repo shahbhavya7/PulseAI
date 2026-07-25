@@ -39,6 +39,7 @@ def _auth(require_db: None, as_user: Callable[[str], str]) -> None:
 def _two_issue_analysis(_text: str) -> TicketAnalysis:
     def issue(summary: str, category: str, urgency: str) -> IssueAnalysis:
         return IssueAnalysis(
+            is_valid_ticket=True,
             summary=summary,
             classification=Classification(category=category, confidence=0.9),  # type: ignore[arg-type]
             sentiment_urgency=SentimentUrgency(

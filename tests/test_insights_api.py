@@ -41,6 +41,7 @@ def _new_user() -> str:
 def _two_issues(_text: str) -> TicketAnalysis:
     def mk(summary: str, category: str, urgency: str, theme: str) -> IssueAnalysis:
         return IssueAnalysis(
+            is_valid_ticket=True,
             summary=summary,
             classification=Classification(category=category, confidence=0.9),  # type: ignore[arg-type]
             sentiment_urgency=SentimentUrgency(
@@ -71,7 +72,10 @@ class _FakeStore:
 def _fake_summary(_context: str) -> WeeklySummaryContent:
     return WeeklySummaryContent(
         headline="Uploads and billing are the week's pain points",
-        narrative="Two issues this week: a photo-upload crash and a duplicate charge.",
+        highlights=[
+            "A photo-upload crash was the top bug this week",
+            "A duplicate charge drove a billing incident",
+        ],
         recommendations=["Fix the photo-upload crash", "Audit the double-charge path"],
     )
 
@@ -109,10 +113,16 @@ def test_upload_to_summary_to_stats(
         "photo-upload crash",
         "duplicate-charge billing",
     }
+    # The weekly summary is returned as scannable bullet points, not one para.
+    assert body["highlights"] == [
+        "A photo-upload crash was the top bug this week",
+        "A duplicate charge drove a billing incident",
+    ]
 
     # Read it back.
     got = client.get(f"/summaries/{week}")
     assert got.status_code == 200
+    assert got.json()["highlights"] == body["highlights"]
     assert got.json()["narrative"] == body["narrative"]
 
     # Dashboard stats (SQL), scoped to this user + week.

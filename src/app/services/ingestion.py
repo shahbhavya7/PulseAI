@@ -313,6 +313,13 @@ def _make_title(text: str) -> str:
     return "(untitled)"
 
 
+@dataclass
+class SegmentSkip:
+    """A segment that was cleaned but is not worth persisting, with a reason."""
+
+    reason: str  # a SkipReason value
+
+
 def _prepare_segment(
     text: str,
     *,
@@ -321,8 +328,13 @@ def _prepare_segment(
     base_needs_review: bool,
     needs_manual_split: bool,
     source_ref: str,
-) -> PreparedItem | None:
-    """Clean, redact, tag, and hash one segment; ``None`` if empty after cleaning."""
+) -> PreparedItem | SegmentSkip | None:
+    """Clean, redact, tag, and hash one segment.
+
+    Returns ``None`` if empty after cleaning, a :class:`SegmentSkip` if the
+    content is non-analyzable (one-word / greeting / gibberish — discarded, not
+    stored), otherwise a :class:`PreparedItem` ready to persist.
+    """
     cleaned = strip_boilerplate(text)
     redacted = redact_pii(cleaned.text)
     stored = redacted.text
@@ -331,8 +343,15 @@ def _prepare_segment(
     if not normalised:
         return None
 
-    language = detect_language(stored)
     content = classify_content(stored)
+    # Junk (empty/one-word/greeting/gibberish) has nothing to analyze — discard it
+    # rather than storing a ticket. It is reported as a "non_analyzable" skip.
+    # A ticket flagged for manual review (e.g. scanned PDF, unclear split) is NOT
+    # discarded — that's a real item a human needs to see.
+    if content.is_junk and not (base_needs_review or needs_manual_split):
+        return SegmentSkip(SkipReason.NON_ANALYZABLE.value)
+
+    language = detect_language(stored)
 
     flags: list[str] = list(base_flags)
     if cleaned.boilerplate_stripped:
@@ -421,6 +440,10 @@ def run_pipeline(
                 result.skipped.append(
                     SkippedItem(record.source_ref, SkipReason.EMPTY_AFTER_CLEAN.value)
                 )
+                continue
+            if isinstance(prepared, SegmentSkip):
+                # Non-analyzable (one-word / greeting / gibberish) — discarded.
+                result.skipped.append(SkippedItem(record.source_ref, prepared.reason))
                 continue
             _append_or_dedup(result, seen, prepared)
 
@@ -541,13 +564,27 @@ class IngestionService:
         # Classify the freshly-created tickets in the same request so the
         # dashboard shows categorised data without a manual "Analyse" click.
         # Best-effort: a model outage leaves the placeholder issues intact.
-        analyzed_count = self._auto_analyze(created_tickets) if auto_analyze else 0
+        discarded: set[UUID] = set()
+        analyzed_count = 0
+        if auto_analyze:
+            analyzed_count, discarded = self._auto_analyze(created_tickets)
+
+        # Tickets the model judged not real were deleted → move them out of the
+        # "created" list and report them as non-analyzable instead.
+        discarded_items = [c for c in created_items if c.ticket_id in discarded]
+        created_items = [c for c in created_items if c.ticket_id not in discarded]
 
         skipped_items = [
             SkippedItemOut(source_ref=s.source_ref, reason=SkipReason(s.reason))
             for s in pipeline.skipped
+        ] + [
+            SkippedItemOut(source_ref=c.source_ref, reason=SkipReason.NON_ANALYZABLE)
+            for c in discarded_items
         ]
         duplicates = sum(1 for s in pipeline.skipped if s.reason == SkipReason.DUPLICATE.value)
+        non_analyzable = sum(
+            1 for s in pipeline.skipped if s.reason == SkipReason.NON_ANALYZABLE.value
+        ) + len(discarded_items)
         flagged = sum(1 for c in created_items if c.flags or c.needs_manual_review)
 
         summary = UploadSummary(
@@ -556,13 +593,14 @@ class IngestionService:
             parser=pipeline.parser,
             encoding_recovered=encoding_recovered,
             analyzed=analyzed_count > 0,
-            analyzed_count=analyzed_count,
+            analyzed_count=analyzed_count - len(discarded_items),
             counts=UploadCounts(
                 detected=pipeline.detected,
                 created=len(created_items),
-                skipped=len(pipeline.skipped) + pipeline.blank_skipped,
+                skipped=len(pipeline.skipped) + pipeline.blank_skipped + len(discarded_items),
                 flagged=flagged,
                 duplicates=duplicates,
+                non_analyzable=non_analyzable,
                 blanks=pipeline.blank_skipped,
             ),
             created_items=created_items,
@@ -603,32 +641,39 @@ class IngestionService:
             auto_analyze=auto_analyze,
         )
 
-    def _auto_analyze(self, tickets: list[Ticket]) -> int:
-        """Classify each created ticket in-request; return how many succeeded.
+    def _auto_analyze(self, tickets: list[Ticket]) -> tuple[int, set[UUID]]:
+        """Classify each created ticket in-request.
 
-        Best-effort by design: a missing key or model outage (``LLMError``) leaves
+        Returns ``(analyzed_count, discarded_ids)`` where ``discarded_ids`` are
+        tickets the model judged not real (greeting / gibberish / non-issue) and
+        deleted. Best-effort: a missing key or model outage (``LLMError``) leaves
         that ticket's placeholder issue untouched so the upload still succeeds and
         the ticket can be analysed later. Imported lazily to avoid a circular
         import (``pipeline`` imports this module for ``iso_week``).
         """
         if not tickets:
-            return 0
+            return 0, set()
 
         from app.services.llm import LLMError
         from app.services.pipeline import analyze_and_persist
 
         analyzed = 0
+        discarded: set[UUID] = set()
         for ticket in tickets:
+            ticket_id = ticket.id
             try:
-                analyze_and_persist(self.db, ticket)
+                issues = analyze_and_persist(self.db, ticket)
                 analyzed += 1
+                if not issues:
+                    # Empty result → the model discarded it as not a real ticket.
+                    discarded.add(ticket_id)
             except LLMError as exc:
                 logger.warning(
                     "Auto-analyze skipped for ticket %s (model unavailable): %s",
-                    ticket.id,
+                    ticket_id,
                     exc,
                 )
                 # analyze_and_persist rolls its own writes into the session; a
                 # failure raised before commit leaves the placeholder issue.
                 self.db.rollback()
-        return analyzed
+        return analyzed, discarded

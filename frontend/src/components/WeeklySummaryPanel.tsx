@@ -111,9 +111,22 @@ export function WeeklySummaryPanel({ week }: { week: string }) {
       <h3 className="relative text-lg font-semibold leading-snug text-foreground">
         {s.headline}
       </h3>
-      <p className="relative mt-3 text-sm leading-relaxed text-muted-foreground">
-        {s.narrative}
-      </p>
+
+      {s.highlights.length > 0 ? (
+        <ul className="relative mt-4 space-y-2">
+          {s.highlights.map((point, i) => (
+            <li key={i} className="flex gap-2.5 text-sm leading-relaxed text-foreground">
+              <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-primary" />
+              <span>{point}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        // Legacy rows stored only the joined text.
+        <p className="relative mt-3 text-sm leading-relaxed text-muted-foreground">
+          {s.narrative}
+        </p>
+      )}
 
       {s.recommendations.length > 0 && (
         <div className="relative mt-5">

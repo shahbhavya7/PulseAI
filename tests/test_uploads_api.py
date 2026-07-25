@@ -30,6 +30,7 @@ def _fake_bug(_text: str) -> TicketAnalysis:
     return TicketAnalysis(
         issues=[
             IssueAnalysis(
+                is_valid_ticket=True,
                 summary="Login page throws an error on submit",
                 classification=Classification(category="bug", confidence=0.92),  # type: ignore[arg-type]
                 sentiment_urgency=SentimentUrgency(
@@ -39,6 +40,26 @@ def _fake_bug(_text: str) -> TicketAnalysis:
                     urgency_label="high",  # type: ignore[arg-type]
                 ),
                 themes=Themes(labels=["login error"]),
+            )
+        ]
+    )
+
+
+def _fake_not_a_ticket(_text: str) -> TicketAnalysis:
+    """The model judges the content as not a real ticket → should be discarded."""
+    return TicketAnalysis(
+        issues=[
+            IssueAnalysis(
+                is_valid_ticket=False,
+                summary="Not a real support ticket (greeting/gibberish).",
+                classification=Classification(category="other", confidence=0.2),  # type: ignore[arg-type]
+                sentiment_urgency=SentimentUrgency(
+                    sentiment_score=0.0,
+                    sentiment_label="neutral",  # type: ignore[arg-type]
+                    urgency_score=0.0,
+                    urgency_label="low",  # type: ignore[arg-type]
+                ),
+                themes=Themes(labels=[]),
             )
         ]
     )
@@ -181,6 +202,53 @@ def test_paste_text_creates_and_classifies_ticket(
     assert "Login bug" in body["filename"]
     tickets = client.get("/tickets").json()["tickets"]
     assert tickets[0]["issues"][0]["category"] == "bug"
+
+
+def test_upload_discards_non_analyzable_rows(client: TestClient) -> None:
+    """One-word / greeting / gibberish rows are discarded, not stored."""
+    marker = uuid4().hex
+    data = _csv(
+        "hi hello",  # greeting
+        "asdkjaskjd test test 123",  # gibberish
+        f"The checkout page crashes when I try to pay {marker}",  # real
+    )
+    resp = client.post("/uploads", files={"file": ("mix.csv", data, "text/csv")})
+    assert resp.status_code == 201, resp.text
+    counts = resp.json()["counts"]
+    assert counts["created"] == 1
+    assert counts["non_analyzable"] == 2
+    reasons = {s["reason"] for s in resp.json()["skipped_items"]}
+    assert "non_analyzable" in reasons
+    # Only the real ticket made it to the DB.
+    assert client.get("/tickets").json()["total"] == 1
+
+
+def test_upload_discards_ticket_the_model_rejects(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ticket the LLM marks is_valid_ticket=False is deleted, not stored."""
+    monkeypatch.setattr(llm, "analyze_ticket_text", _fake_not_a_ticket)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+    # Passes the pre-LLM heuristic (real words), so it reaches the model.
+    data = _csv(f"please look into this soon {uuid4().hex}")
+    resp = client.post("/uploads", files={"file": ("t.csv", data, "text/csv")})
+    assert resp.status_code == 201, resp.text
+    counts = resp.json()["counts"]
+    assert counts["created"] == 0
+    assert counts["non_analyzable"] == 1
+    assert resp.json()["analyzed_count"] == 0
+    # Nothing persisted — the ticket was discarded.
+    assert client.get("/tickets").json()["total"] == 0
+
+
+def test_paste_single_gibberish_is_not_stored(client: TestClient) -> None:
+    """Pasting just gibberish returns a summary (created=0), stores nothing."""
+    resp = client.post("/uploads/text", json={"text": "asdkjaskjd test test 123"})
+    assert resp.status_code == 201, resp.text
+    counts = resp.json()["counts"]
+    assert counts["created"] == 0
+    assert counts["non_analyzable"] == 1
+    assert client.get("/tickets").json()["total"] == 0
 
 
 def test_paste_text_rejects_empty(client: TestClient) -> None:

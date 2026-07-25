@@ -10,6 +10,7 @@ import {
   Gauge,
   Languages,
   Loader2,
+  MessageSquareOff,
   PartyPopper,
   PenLine,
   Sparkles,
@@ -324,7 +325,7 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
             { count: c.detected, label: "Detected" },
             { count: c.created, label: "Created", tone: "feature_request" },
             { count: c.flagged, label: "Flagged", tone: "medium" },
-            { count: c.skipped, label: "Skipped" },
+            { count: c.non_analyzable, label: "Non-analyzable", tone: "critical" },
             { count: c.duplicates, label: "Duplicates" },
             { count: c.blanks, label: "Blank rows" },
           ].map((t) => (
@@ -333,6 +334,16 @@ function UploadResult({ summary }: { summary: UploadSummary }) {
             </MotionItem>
           ))}
         </MotionStagger>
+        {c.non_analyzable > 0 && (
+          <p className="mt-3 flex items-center gap-2 rounded-[var(--radius)] border border-white/10 bg-white/5 px-3 py-2 text-sm text-muted-foreground">
+            <MessageSquareOff className="size-4 shrink-0" />
+            <span>
+              {c.non_analyzable} {c.non_analyzable === 1 ? "message" : "messages"}{" "}
+              (one-word, greetings, or gibberish) had nothing to analyze and{" "}
+              <span className="text-foreground">weren&apos;t stored</span>.
+            </span>
+          </p>
+        )}
         {c.created > 0 && (
           <p className="mt-4 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
             Next: head to{" "}
