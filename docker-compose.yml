@@ -1,8 +1,35 @@
-# Local infrastructure for PulseAI: PostgreSQL (with pgvector) and Redis.
-# Credentials come from .env (see .env.example); nothing is hardcoded here
-# beyond local-dev defaults that .env overrides.
+# Full PulseAI stack: the app (FastAPI API + Next.js dashboard in one image),
+# PostgreSQL (with pgvector), and Redis. Credentials come from .env (see
+# .env.example); nothing is hardcoded here beyond local-dev defaults .env overrides.
+#
+#   docker compose up            # build + run everything
+#   PULSE_IMAGE=ghcr.io/shahbhavya7/pulseai:latest docker compose up   # skip the build
 
 services:
+  app:
+    # Build locally by default; set PULSE_IMAGE to pull a prebuilt image instead.
+    image: ${PULSE_IMAGE:-pulseai:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulse-app
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the DB/Redis are reachable by service name.
+      PULSE_POSTGRES_HOST: postgres
+      PULSE_POSTGRES_PORT: "5432"
+      PULSE_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${PULSE_FRONTEND_PORT:-3000}:3000"   # dashboard
+      - "${PULSE_API_PORT:-8000}:8000"        # API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg16
     container_name: pulse-postgres

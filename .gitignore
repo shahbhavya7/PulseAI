@@ -25,3 +25,6 @@ htmlcov/
 .idea/
 .vscode/
 scripts/clean-cache.sh
+
+# Internal docs — kept locally, not published to the remote repo
+docs/
