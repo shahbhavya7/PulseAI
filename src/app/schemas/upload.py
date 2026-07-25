@@ -23,6 +23,15 @@ class SkipReason(StrEnum):
     DUPLICATE = "duplicate"  # content_hash already seen (this batch or DB)
 
 
+class PasteTicketRequest(APIModel):
+    """A single ticket typed/pasted straight into the app (no file)."""
+
+    text: str = Field(min_length=1, max_length=20_000, description="The ticket message")
+    title: str | None = Field(
+        default=None, max_length=200, description="Optional label for the source"
+    )
+
+
 class CreatedItem(APIModel):
     """A persisted ticket/issue pair produced from the upload."""
 
@@ -65,6 +74,10 @@ class UploadSummary(APIModel):
     content_type: str | None
     parser: str
     encoding_recovered: bool = False
+    analyzed: bool = Field(
+        default=False, description="Whether created tickets were auto-classified in-request"
+    )
+    analyzed_count: int = Field(default=0, description="How many tickets were auto-classified")
     counts: UploadCounts
     created_items: list[CreatedItem]
     skipped_items: list[SkippedItemOut]

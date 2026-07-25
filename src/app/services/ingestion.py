@@ -25,6 +25,7 @@ import pdfplumber
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.models.enums import (
     IssueCategory,
@@ -489,13 +490,20 @@ class IngestionService:
         filename: str,
         content_type: str | None,
         data: bytes,
+        auto_analyze: bool | None = None,
     ) -> UploadSummary:
         """Ingest one uploaded file and return its summary.
+
+        When ``auto_analyze`` is enabled (defaulting to the ``auto_analyze_on_upload``
+        setting) each created ticket is run through the AI classifier in the same
+        request; a model outage degrades gracefully to the unclassified placeholder.
 
         Raises:
             IngestionError: For file-level failures (unsupported type, undecodable
                 bytes, missing text column, empty file) — mapped to 4xx upstream.
         """
+        if auto_analyze is None:
+            auto_analyze = get_settings().auto_analyze_on_upload
         parse_result = parse_file(filename, content_type, data)
         encoding_recovered = any(
             IssueFlag.ENCODING_RECOVERED.value in record.flags for record in parse_result.records
@@ -512,8 +520,10 @@ class IngestionService:
 
         week = iso_week()
         created_items: list[CreatedItem] = []
+        created_tickets: list[Ticket] = []
         for item in pipeline.prepared:
             ticket, issue = self._persist(user, item, week)
+            created_tickets.append(ticket)
             created_items.append(
                 CreatedItem(
                     source_ref=item.source_ref,
@@ -528,6 +538,11 @@ class IngestionService:
             )
         self.db.commit()
 
+        # Classify the freshly-created tickets in the same request so the
+        # dashboard shows categorised data without a manual "Analyse" click.
+        # Best-effort: a model outage leaves the placeholder issues intact.
+        analyzed_count = self._auto_analyze(created_tickets) if auto_analyze else 0
+
         skipped_items = [
             SkippedItemOut(source_ref=s.source_ref, reason=SkipReason(s.reason))
             for s in pipeline.skipped
@@ -540,6 +555,8 @@ class IngestionService:
             content_type=content_type,
             parser=pipeline.parser,
             encoding_recovered=encoding_recovered,
+            analyzed=analyzed_count > 0,
+            analyzed_count=analyzed_count,
             counts=UploadCounts(
                 detected=pipeline.detected,
                 created=len(created_items),
@@ -552,12 +569,66 @@ class IngestionService:
             skipped_items=skipped_items,
         )
         logger.info(
-            "Upload '%s' (%s): detected=%d created=%d skipped=%d flagged=%d",
+            "Upload '%s' (%s): detected=%d created=%d skipped=%d flagged=%d analyzed=%d",
             filename,
             pipeline.parser,
             summary.counts.detected,
             summary.counts.created,
             summary.counts.skipped,
             summary.counts.flagged,
+            analyzed_count,
         )
         return summary
+
+    def ingest_text(
+        self,
+        user: User,
+        *,
+        text: str,
+        title: str | None = None,
+        auto_analyze: bool | None = None,
+    ) -> UploadSummary:
+        """Ingest a single pasted-in ticket (same path as a plain-text upload).
+
+        The text runs through the identical parse → clean → persist → classify
+        flow as a ``.txt`` upload, so pasting one ticket behaves exactly like
+        uploading a one-message file. ``title`` only names the synthetic source.
+        """
+        filename = f"{title.strip()}.txt" if title and title.strip() else "pasted-ticket.txt"
+        return self.ingest(
+            user,
+            filename=filename,
+            content_type="text/plain",
+            data=text.encode("utf-8"),
+            auto_analyze=auto_analyze,
+        )
+
+    def _auto_analyze(self, tickets: list[Ticket]) -> int:
+        """Classify each created ticket in-request; return how many succeeded.
+
+        Best-effort by design: a missing key or model outage (``LLMError``) leaves
+        that ticket's placeholder issue untouched so the upload still succeeds and
+        the ticket can be analysed later. Imported lazily to avoid a circular
+        import (``pipeline`` imports this module for ``iso_week``).
+        """
+        if not tickets:
+            return 0
+
+        from app.services.llm import LLMError
+        from app.services.pipeline import analyze_and_persist
+
+        analyzed = 0
+        for ticket in tickets:
+            try:
+                analyze_and_persist(self.db, ticket)
+                analyzed += 1
+            except LLMError as exc:
+                logger.warning(
+                    "Auto-analyze skipped for ticket %s (model unavailable): %s",
+                    ticket.id,
+                    exc,
+                )
+                # analyze_and_persist rolls its own writes into the session; a
+                # failure raised before commit leaves the placeholder issue.
+                self.db.rollback()
+        return analyzed

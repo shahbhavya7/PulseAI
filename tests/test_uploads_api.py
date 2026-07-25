@@ -14,8 +14,42 @@ from fastapi.testclient import TestClient
 
 from app.db.session import get_sessionmaker
 from app.models.user import User
+from app.schemas.ai import (
+    Classification,
+    IssueAnalysis,
+    SentimentUrgency,
+    Themes,
+    TicketAnalysis,
+)
+from app.services import llm, pipeline
 
 pytestmark = pytest.mark.usefixtures("require_db")
+
+
+def _fake_bug(_text: str) -> TicketAnalysis:
+    return TicketAnalysis(
+        issues=[
+            IssueAnalysis(
+                summary="Login page throws an error on submit",
+                classification=Classification(category="bug", confidence=0.92),  # type: ignore[arg-type]
+                sentiment_urgency=SentimentUrgency(
+                    sentiment_score=-0.4,
+                    sentiment_label="negative",  # type: ignore[arg-type]
+                    urgency_score=0.7,
+                    urgency_label="high",  # type: ignore[arg-type]
+                ),
+                themes=Themes(labels=["login error"]),
+            )
+        ]
+    )
+
+
+class _FakeStore:
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.01] * 1536 for _ in texts]
+
+    def embed_one(self, text: str) -> list[float]:
+        return [0.01] * 1536
 
 
 def _csv(*rows: str, header: str = "text") -> bytes:
@@ -94,6 +128,65 @@ def test_upload_text_file_boundary_split(client: TestClient) -> None:
     resp = client.post("/uploads", files={"file": ("thread.txt", blob, "text/plain")})
     assert resp.status_code == 201, resp.text
     assert resp.json()["counts"]["created"] == 2
+
+
+def test_upload_auto_classifies_when_model_available(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the model available, uploaded tickets are classified in the same request."""
+    monkeypatch.setattr(llm, "analyze_ticket_text", _fake_bug)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+    marker = uuid4().hex
+    data = _csv(f"Login page throws an error {marker}")
+    resp = client.post("/uploads", files={"file": ("issues.csv", data, "text/csv")})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["counts"]["created"] == 1
+    assert body["analyzed"] is True
+    assert body["analyzed_count"] == 1
+    # The persisted issue is the classified fan-out, not the OTHER placeholder.
+    tickets = client.get("/tickets").json()["tickets"]
+    assert tickets[0]["issues"][0]["category"] == "bug"
+
+
+def test_upload_degrades_when_model_unavailable(client: TestClient) -> None:
+    """No key (the default test env) → upload still succeeds with a placeholder issue."""
+    marker = uuid4().hex
+    data = _csv(f"Something is broken here {marker}")
+    resp = client.post("/uploads", files={"file": ("issues.csv", data, "text/csv")})
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["counts"]["created"] == 1
+    assert body["analyzed"] is False
+    assert body["analyzed_count"] == 0
+    # The ticket is stored and still browsable (unclassified placeholder).
+    assert client.get("/tickets").json()["total"] == 1
+
+
+def test_paste_text_creates_and_classifies_ticket(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm, "analyze_ticket_text", _fake_bug)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+    marker = uuid4().hex
+    resp = client.post(
+        "/uploads/text",
+        json={"text": f"The login page throws an error {marker}", "title": "Login bug"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["parser"] == "text"
+    assert body["counts"]["created"] == 1
+    assert body["analyzed_count"] == 1
+    assert "Login bug" in body["filename"]
+    tickets = client.get("/tickets").json()["tickets"]
+    assert tickets[0]["issues"][0]["category"] == "bug"
+
+
+def test_paste_text_rejects_empty(client: TestClient) -> None:
+    resp = client.post("/uploads/text", json={"text": "   "})
+    # Whitespace-only cleans to nothing → 400 empty-file error (not a crash).
+    assert resp.status_code in (400, 422)
 
 
 def test_upload_requires_auth(client: TestClient) -> None:

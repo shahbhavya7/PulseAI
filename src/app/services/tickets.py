@@ -130,6 +130,7 @@ def list_tickets(
             TicketOut(
                 id=ticket.id,
                 title=ticket.title,
+                body=ticket.body or ticket.title,
                 source=str(ticket.source),
                 status=str(ticket.status),
                 created_at=ticket.created_at,

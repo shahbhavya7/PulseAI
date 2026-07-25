@@ -82,9 +82,10 @@ def test_tickets_groups_issues_and_reports_count(
     monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
     monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
     as_user(_new_user())
+    marker = uuid4().hex
     _upload_and_analyze(
         client,
-        f"the app keeps crashing on photo upload and I love the new dark mode {uuid4().hex}",
+        f"the app keeps crashing on photo upload and I love the new dark mode {marker}",
     )
 
     resp = client.get("/tickets")
@@ -96,6 +97,8 @@ def test_tickets_groups_issues_and_reports_count(
     assert len(ticket["issues"]) == 2
     cats = {i["category"] for i in ticket["issues"]}
     assert cats == {"bug", "feature_request"}
+    # The original raw ticket text is returned for display on the card.
+    assert marker in ticket["body"]
 
 
 def test_tickets_category_filter_narrows_nested_issues(
@@ -155,3 +158,44 @@ def test_tickets_requires_auth(client: TestClient) -> None:
     resp = client.get("/tickets")
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "not_authenticated"
+
+
+def test_delete_ticket_removes_ticket_and_issues(
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+    as_user(_new_user())
+    tid = _upload_and_analyze(client, f"delete me and my issues {uuid4().hex}")
+
+    # It's present, then gone (204), then absent from the list — issues cascade.
+    assert client.get("/tickets").json()["total"] == 1
+    resp = client.delete(f"/tickets/{tid}")
+    assert resp.status_code == 204, resp.text
+    assert client.get("/tickets").json()["total"] == 0
+
+
+def test_delete_ticket_unknown_id_is_404(client: TestClient, as_user: Callable[[str], str]) -> None:
+    as_user(_new_user())
+    resp = client.delete(f"/tickets/{uuid4()}")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "not_found"
+
+
+def test_delete_ticket_is_isolated_between_users(
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """User B cannot delete user A's ticket (gets a 404, and A's data survives)."""
+    monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+
+    user_a = as_user(_new_user())
+    tid = _upload_and_analyze(client, f"user-a ticket {uuid4().hex}")
+
+    as_user(_new_user())  # switch to a different user
+    resp = client.delete(f"/tickets/{tid}")
+    assert resp.status_code == 404
+
+    # Back to user A: the ticket is untouched.
+    as_user(user_a)
+    assert client.get("/tickets").json()["total"] == 1

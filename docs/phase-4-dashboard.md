@@ -196,13 +196,28 @@ Typed wrappers on top: `uploadFile`, `getStats`, `getSummary`, `generateSummary`
 backendDown, reload}` state so all three routes render loading/error/success the
 same way and can refetch after an action (generate summary, analyse ticket).
 
-## 2. Upload route (`/upload`)
+## 2. Add-tickets route (`/upload`)
 
-Drag-and-drop (or click) a CSV/PDF/text file → `POST /uploads` → renders the
-**upload summary**: six headline tiles (detected / created / flagged / skipped /
-duplicates / blank rows), a list of created items (language + confidence + any
-flags / needs-review), and a list of skipped items with the reason. Busy and
-error states are inline; a clean batch gets a "nothing needed flagging" note.
+Two ways in, chosen by a glass pill toggle at the top:
+
+- **Upload file** — drag-and-drop (or click) a CSV/PDF/text file → `POST /uploads`.
+- **Paste a ticket** — type/paste one customer message (with an optional label) →
+  `POST /uploads/text`. Runs the identical parse → clean → PII-redact → store →
+  classify path as a one-message text file; handy for a quick single ticket.
+
+Both render the same **upload summary**: six headline tiles (detected / created /
+flagged / skipped / duplicates / blank rows), a list of created items (language +
+confidence + any flags / needs-review), and a list of skipped items with the
+reason. Busy and error states are inline; a clean batch gets a "nothing needed
+flagging" note.
+
+**Auto-classification.** Ingestion now classifies each created ticket in the same
+request (`auto_analyze_on_upload`, on by default), so categories, sentiment, and
+themes are on the dashboard immediately — no manual "Analyse" click. The summary
+reports `analyzed` / `analyzed_count`, and the UI shows a "Auto-classified N
+tickets" banner. If the AI service is unavailable the upload still succeeds with
+an unclassified placeholder issue and the banner points the user at the manual
+**Analyse** action instead — the failure degrades, it never blocks ingestion.
 
 ## 3. Overview route (`/`)
 

@@ -37,6 +37,7 @@ class TicketOut(APIModel):
 
     id: UUID
     title: str
+    body: str  # the stored raw ticket text (cleaned + PII-redacted)
     source: str
     status: str
     created_at: datetime

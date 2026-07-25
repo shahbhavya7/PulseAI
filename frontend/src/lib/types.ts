@@ -38,6 +38,8 @@ export interface UploadSummary {
   content_type: string | null;
   parser: string;
   encoding_recovered: boolean;
+  analyzed: boolean;
+  analyzed_count: number;
   counts: UploadCounts;
   created_items: CreatedItem[];
   skipped_items: SkippedItemOut[];
@@ -126,6 +128,7 @@ export interface IssueOut {
 export interface TicketOut {
   id: string;
   title: string;
+  body: string;
   source: string;
   status: string;
   created_at: string;

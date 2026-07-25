@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, UploadFile, status
 from fastapi.exceptions import HTTPException
 
 from app.api.deps import CurrentUser, DbSession
-from app.schemas.upload import UploadSummary
+from app.schemas.upload import PasteTicketRequest, UploadSummary
 from app.services.ingestion import (
     EmptyFileError,
     IngestionError,
@@ -52,6 +52,32 @@ def create_upload(
             filename=file.filename or "upload",
             content_type=file.content_type,
             data=data,
+        )
+    except IngestionError as exc:
+        http_status = _STATUS_BY_ERROR.get(type(exc), status.HTTP_422_UNPROCESSABLE_ENTITY)
+        raise HTTPException(
+            status_code=http_status,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+
+
+@router.post(
+    "/uploads/text",
+    response_model=UploadSummary,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit a single typed/pasted ticket and ingest it",
+)
+def create_upload_from_text(
+    payload: PasteTicketRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> UploadSummary:
+    """Ingest one pasted ticket for the acting user (same flow as a text upload)."""
+    try:
+        return IngestionService(db).ingest_text(
+            user,
+            text=payload.text,
+            title=payload.title,
         )
     except IngestionError as exc:
         http_status = _STATUS_BY_ERROR.get(type(exc), status.HTTP_422_UNPROCESSABLE_ENTITY)

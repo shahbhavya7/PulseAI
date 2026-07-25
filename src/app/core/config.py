@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     ai_cache_ttl_seconds: int = 604800
     # Embedding model (Phase 3). 1536 dims matches app.models.issue.EMBEDDING_DIM.
     openai_embedding_model: str = "text-embedding-3-small"
+    # Classify freshly-uploaded tickets automatically in the same request, so the
+    # dashboard shows categorised data without a manual "Analyse" click. Degrades
+    # gracefully: if the model is unavailable each ticket keeps its unclassified
+    # placeholder issue and can be analysed later. Set false to defer all
+    # classification to the explicit /tickets/{id}/analyze call.
+    auto_analyze_on_upload: bool = True
 
     # ---- Phase 6: chat (hybrid retrieval + cross-session memory) ----
     # How many semantically-relevant issue examples to retrieve per question.

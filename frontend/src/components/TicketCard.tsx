@@ -1,8 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Gauge, Hash, Loader2, Smile, Sparkles, Zap } from "lucide-react";
-import { ApiError, analyzeTicket } from "@/lib/api";
+import {
+  ChevronDown,
+  FileText,
+  Gauge,
+  Hash,
+  Loader2,
+  Smile,
+  Sparkles,
+  Trash2,
+  Zap,
+} from "lucide-react";
+import { ApiError, analyzeTicket, deleteTicket } from "@/lib/api";
 import type { IssueOut, TicketOut } from "@/lib/types";
 import { humanize, sentimentWord } from "@/lib/format";
 import { DomainBadge, CountChip, ReviewFlag } from "@/components/Badge";
@@ -23,6 +33,8 @@ export function TicketCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const analysed = ticket.issues.some((i) => i.analyzed_at != null);
   const multi = ticket.issue_count > 1;
@@ -37,6 +49,19 @@ export function TicketCard({
       setError(err instanceof ApiError ? err.message : "Analysis failed. Try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteTicket(ticket.id);
+      onChanged(); // parent refetches → this card drops out of the list
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Delete failed. Try again.");
+      setDeleting(false);
+      setConfirmingDelete(false);
     }
   }
 
@@ -64,10 +89,44 @@ export function TicketCard({
               {busy ? "Analysing…" : "Analyse"}
             </Button>
           )}
+
+          {confirmingDelete ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={onDelete}
+                disabled={deleting}
+              >
+                {deleting ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Delete ticket"
+              title="Delete ticket"
+              onClick={() => setConfirmingDelete(true)}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          )}
         </div>
       </header>
 
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+
+      <RawTicket body={ticket.body} title={ticket.title} />
 
       <ul className="mt-4 space-y-3">
         {ticket.issues.map((issue) => (
@@ -75,6 +134,41 @@ export function TicketCard({
         ))}
       </ul>
     </MotionCard>
+  );
+}
+
+/** The original raw ticket text (as stored — cleaned + PII-redacted), collapsible
+ *  so a long forwarded email doesn't dominate the card. Shows a one-line preview
+ *  when collapsed. Hidden only when the body adds nothing over the title. */
+function RawTicket({ body, title }: { body: string; title: string }) {
+  const [open, setOpen] = useState(false);
+  const text = body.trim();
+  // Nothing extra to show if the stored body is just the title line.
+  if (!text || text === title.trim()) return null;
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <FileText className="size-3.5" />
+        Original ticket
+        <ChevronDown
+          className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open ? (
+        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/5 bg-white/[0.03] p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+          {text}
+        </pre>
+      ) : (
+        <p className="mt-1 truncate text-xs text-muted-foreground/70">{text}</p>
+      )}
+    </div>
   );
 }
 

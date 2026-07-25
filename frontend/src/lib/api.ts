@@ -126,6 +126,15 @@ export function uploadFile(file: File): Promise<UploadSummary> {
   return apiFetch<UploadSummary>("/uploads", { method: "POST", body: form });
 }
 
+/** Submit one typed/pasted ticket — same ingestion + auto-classify as a text file. */
+export function uploadText(text: string, title?: string): Promise<UploadSummary> {
+  return apiFetch<UploadSummary>("/uploads/text", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, title: title?.trim() || null }),
+  });
+}
+
 export function getStats(params: {
   week?: string;
   minConfidence?: number;
@@ -175,6 +184,13 @@ export function analyzeTicket(ticketId: string): Promise<TicketAnalyzeResponse> 
     `/tickets/${encodeURIComponent(ticketId)}/analyze`,
     { method: "POST" },
   );
+}
+
+/** Delete a ticket (and its issues) permanently. Resolves on 204. */
+export function deleteTicket(ticketId: string): Promise<void> {
+  return apiFetch<void>(`/tickets/${encodeURIComponent(ticketId)}`, {
+    method: "DELETE",
+  });
 }
 
 // ---- Auth ------------------------------------------------------------------
