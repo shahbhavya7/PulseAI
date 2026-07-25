@@ -12,7 +12,6 @@ import {
   Smile,
   Sparkles,
   Trash2,
-  Zap,
 } from "lucide-react";
 import { ApiError, analyzeTicket, deleteTicket } from "@/lib/api";
 import type { IssueOut, TicketOut } from "@/lib/types";
@@ -215,6 +214,21 @@ function RawTicket({ body, title }: { body: string; title: string }) {
   );
 }
 
+// Map a value to one of the domain colour tokens (defined in globals.css), so
+// the sentiment / confidence icons read at a glance like the badges do.
+function sentimentColor(score: number): string {
+  if (score <= -0.2) return "var(--color-incident)"; // red = negative
+  if (score >= 0.2) return "var(--color-feature_request)"; // green = positive
+  return "var(--color-medium)"; // amber = neutral
+}
+
+function confidenceColor(score: number): string {
+  // High confidence is good (green); low confidence is a warning (red).
+  if (score >= 0.75) return "var(--color-feature_request)";
+  if (score >= 0.5) return "var(--color-medium)";
+  return "var(--color-incident)";
+}
+
 function IssueRow({ issue, analysed }: { issue: IssueOut; analysed: boolean }) {
   return (
     <li className="rounded-xl border border-white/5 bg-white/[0.03] p-3 transition-colors hover:bg-white/[0.05]">
@@ -234,15 +248,17 @@ function IssueRow({ issue, analysed }: { issue: IssueOut; analysed: boolean }) {
       {analysed && (
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <Smile className="size-3" />
+            <Smile
+              className="size-3"
+              style={{ color: sentimentColor(issue.sentiment_score) }}
+            />
             {sentimentWord(issue.sentiment_score)}
           </span>
           <span className="inline-flex items-center gap-1">
-            <Zap className="size-3" />
-            Urgency {Math.round(issue.urgency_score * 100)}%
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Gauge className="size-3" />
+            <Gauge
+              className="size-3"
+              style={{ color: confidenceColor(issue.confidence) }}
+            />
             {Math.round(issue.confidence * 100)}%
           </span>
         </div>

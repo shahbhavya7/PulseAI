@@ -140,21 +140,25 @@ Follow these rules exactly:
 5. Analyze the content regardless of language (including mixed-language tickets).
 6. Promotional spam / gibberish is category "other", low urgency, neutral
    sentiment, with a "spam" theme.
-7. is_valid_ticket decides whether this belongs in a customer-support queue.
-   Set is_valid_ticket=TRUE only when the text is about THIS product or service:
-   a bug, an outage/incident, a billing or account problem, a feature request, or
-   a genuine question about using the product. It can be short ("login broken",
-   "app keeps crashing").
-   Set is_valid_ticket=FALSE for everything else, even when it is well-formed
-   grammatical English, including:
+7. is_valid_ticket decides whether this is real customer feedback about THIS
+   product or service (which we keep and track), versus noise (which we discard).
+   Set is_valid_ticket=TRUE when the text is about the product or service:
+   - a bug, an outage/incident, a billing or account problem, a feature request,
+     or a genuine question about using the product, AND
+   - genuine PRAISE or positive feedback about the product/service/support ("love
+     the new dark mode", "your support team was amazing", "the app is so fast
+     now"). Positive feedback is valuable signal: keep it (category "other",
+     positive sentiment, with a theme like "praise" or "positive-feedback").
+   It can be short ("login broken", "great update!").
+   Set is_valid_ticket=FALSE only for genuine noise, even when grammatical:
    - greetings / filler / test text ("hi", "ok thanks", "uuu uuuu", "asdf test"),
    - keyboard-mash gibberish or promotional spam,
-   - off-topic personal messages unrelated to the product ("my dog died
-     yesterday", "I love pizza", "what's the weather today", "how are you"),
-   - general chit-chat, opinions, or statements with no product issue or request.
-   The test: could a support agent act on this about the product? If not, FALSE.
-   When a plausible product complaint is ambiguous, prefer TRUE. Items marked
-   FALSE are discarded, so never mark a real product issue false.
+   - off-topic personal messages NOT about the product ("my dog died yesterday",
+     "I love pizza", "what's the weather today", "how are you").
+   The test: is this a customer telling us something about our product (good OR
+   bad)? If yes, TRUE. If it is noise or unrelated to the product, FALSE. When
+   ambiguous, prefer TRUE. Items marked FALSE are discarded, so never mark real
+   product feedback (including praise) false.
 """
 
 
