@@ -95,14 +95,21 @@ def send_message(
             detail={"code": exc.code, "message": exc.message},
         ) from exc
 
-    token_iter = chat.stream_turn(
+    turn = chat.stream_turn(
         db, user, session, payload.message, week=payload.week, category=payload.category
     )
 
     def event_stream() -> Iterator[str]:
-        # Each token is a JSON-encoded SSE data line; a final `done` event closes.
+        # A `table` frame first (when the answer is backed by a live query), then
+        # the answer tokens, then a final `done` event closes the stream.
         try:
-            for token in token_iter:
+            if turn.table is not None:
+                table_frame = {
+                    "table": turn.table.model_dump(mode="json"),
+                    "explanation": turn.explanation,
+                }
+                yield f"data: {json.dumps(table_frame)}\n\n"
+            for token in turn.tokens:
                 yield f"data: {json.dumps({'token': token})}\n\n"
         except Exception as exc:  # noqa: BLE001 — SSE must always close cleanly
             logger.exception("Chat stream error")

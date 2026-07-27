@@ -347,13 +347,131 @@ set `PULSE_BACKEND_BASE_URL`, `PULSE_FRONTEND_BASE_URL`, and
 
 ---
 
-## ✅ Checks
+## 🧰 Command reference
+
+Every command you need, grouped by what you're trying to do. Run them from the
+project root with your virtualenv active (`source .venv/bin/activate`).
+
+### 🗄️ Database & infrastructure
+
+| Command | What it does |
+|---|---|
+| `docker compose up -d postgres redis` | **Start the datastores.** Postgres (with pgvector) on `:5432`, Redis on `:6379`. This is the one to run before working from source. |
+| `docker compose stop postgres redis` | Stop them, keeping the data. |
+| `docker compose down` | Stop and remove the containers. Data survives in named volumes. |
+| `docker compose down -v` | ⚠️ Stop **and wipe all data** — a clean slate. You'll need to re-run migrations. |
+| `docker compose logs -f postgres` | Tail the database logs (swap `postgres` for `redis` or `app`). |
+| `docker compose ps` | See which services are up and whether their healthchecks pass. |
+
+**Connect to the database directly** (psql shell inside the container):
 
 ```bash
-ruff check . && ruff format --check .
-mypy
-pytest
+docker exec -it pulse-postgres psql -U pulse -d pulse
 ```
+
+Useful once you're in: `\dt` (list tables) · `\d tickets` (describe a table) ·
+`SELECT count(*) FROM tickets;` · `\q` (quit).
+
+**Check Redis is alive:**
+
+```bash
+docker exec -it pulse-redis redis-cli ping     # → PONG
+docker exec -it pulse-redis redis-cli FLUSHALL # clear the cache
+```
+
+### 🧬 Migrations (Alembic)
+
+The schema lives in `alembic/versions/`. Along the way the migrations enable the
+`pgvector` extension and seed the `dev@pulseai.local` account, so a single
+`alembic upgrade head` gets you a fully usable database.
+
+| Command | What it does |
+|---|---|
+| `alembic upgrade head` | **Apply all migrations.** Run this after a fresh clone or after pulling new ones. |
+| `alembic current` | Show which revision the database is on right now. |
+| `alembic history --verbose` | List every migration in order, with descriptions. |
+| `alembic downgrade -1` | Roll back one migration. |
+| `alembic downgrade base` | Roll back everything (empty schema). |
+| `alembic revision --autogenerate -m "add x column"` | Generate a new migration from model changes. **Always read the generated file** before applying it. |
+
+> Alembic reads `PULSE_DATABASE_URL` (or the `PULSE_POSTGRES_*` parts) from your
+> `.env`, so the datastores must be up before any of these will connect.
+
+### ▶️ Running the app
+
+| Command | What it does |
+|---|---|
+| `./scripts/start-dev.sh` | **The everyday one.** Backend on `:8000` + dashboard on `:3000`, both with hot reload. `Ctrl-C` stops both cleanly. Installs frontend deps on first run. |
+| `./scripts/start-dev.sh --backend-only` | Just the API. |
+| `./scripts/start-dev.sh --frontend-only` | Just the dashboard. |
+| `BACKEND_PORT=8001 FRONTEND_PORT=3001 ./scripts/start-dev.sh` | Same, on different ports if `8000`/`3000` are taken. |
+| `uvicorn app.main:app --reload --app-dir src` | Backend by hand, without the script. |
+| `cd frontend && npm run dev` | Dashboard by hand. |
+| `docker compose up` | Everything in containers — no Python or Node needed locally. |
+
+**Health endpoints** (handy for confirming things are wired up):
+
+```bash
+curl localhost:8000/health    # liveness — is the process up?
+curl localhost:8000/ready     # readiness — can it reach Postgres + Redis?
+open http://localhost:8000/docs   # interactive OpenAPI explorer
+```
+
+### ✅ Quality checks
+
+| Command | What it does |
+|---|---|
+| `ruff check .` | Lint. Add `--fix` to auto-fix what it can. |
+| `ruff format .` | Format the code (`--check` to only verify). |
+| `mypy` | Type-check the backend. |
+| `pytest` | Run the whole test suite. |
+| `pytest -k chat -v` | Run only tests matching a name, verbosely. |
+| `pytest tests/test_hardening.py` | Run a single file. |
+| `cd frontend && npm run lint` | Lint the dashboard. |
+| `cd frontend && npm run typecheck` | Type-check the dashboard (`tsc --noEmit`). |
+| `cd frontend && npm run build` | Production build — catches errors the dev server tolerates. |
+
+Everything at once, the way CI runs it:
+
+```bash
+ruff check . && ruff format --check . && mypy && pytest
+```
+
+> `pytest` needs Postgres up (`docker compose up -d postgres redis`) — the tests
+> exercise real SQL against a real database rather than mocking it.
+
+### 🔬 Evaluation & utilities
+
+| Command | What it does |
+|---|---|
+| `python scripts/eval_accuracy.py` | Score the classifier against the blind labelled set (`tests/data/accuracy_set.jsonl`) and write `docs/accuracy.md`. Needs `PULSE_OPENAI_API_KEY`; no DB required. |
+| `python scripts/eval_accuracy.py --no-write` | Same, but print the report instead of writing the file. |
+| `python scripts/eval_accuracy.py --dry-run` | List the test set without calling the model (free, no key needed). |
+| `./scripts/clean-cache.sh` | Delete `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, build artifacts. |
+| `./scripts/clean-cache.sh --dry-run` | Show what *would* be deleted, without deleting. |
+| `python -c "import secrets; print(secrets.token_urlsafe(48))"` | Generate a JWT / OAuth state secret for `.env`. |
+
+### 🐳 Docker image
+
+| Command | What it does |
+|---|---|
+| `docker build -t pulseai .` | Build the single combined image (frontend + backend). |
+| `docker run --rm -p 3000:3000 -p 8000:8000 --env-file .env pulseai` | Run that image standalone (expects Postgres/Redis to be reachable). |
+| `docker compose build --no-cache app` | Rebuild the app image from scratch, ignoring layer cache. |
+| `docker compose logs -f app` | Watch the container boot: waiting for Postgres → migrations → both servers. |
+| `docker exec -it pulse-app bash` | Shell into the running container to poke around. |
+
+### 🆘 When something's wrong
+
+| Symptom | Fix |
+|---|---|
+| `connection refused` on port 5432 | Datastores aren't up: `docker compose up -d postgres redis` |
+| `relation "tickets" does not exist` | Schema isn't applied: `alembic upgrade head` |
+| Port `3000`/`8000` already in use | `lsof -ti:3000 \| xargs kill` — or use different ports (see above) |
+| Dashboard shows "API offline" | Backend isn't running or is still booting. Check `curl localhost:8000/health`. |
+| AI features return `503 ai_unavailable` | `PULSE_OPENAI_API_KEY` is missing or invalid in `.env`. Everything else still works. |
+| Weird stale behaviour after a big change | `./scripts/clean-cache.sh` then restart |
+| Want a totally fresh database | `docker compose down -v && docker compose up -d postgres redis && alembic upgrade head` |
 
 <div align="center">
 

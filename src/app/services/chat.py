@@ -16,6 +16,7 @@ Session end / idle sweep distils sessions into embedded memory
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -28,7 +29,8 @@ from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.models.enums import ChatRole, ChatSessionStatus
 from app.models.user import User
-from app.services import chat_memory, llm
+from app.schemas.analytics import AnalyticsTable
+from app.services import chat_analytics, chat_memory, llm
 from app.services.chat_retrieval import ChatContext, retrieve_context
 from app.services.llm import LLMError
 from app.services.vector_store import VectorStore, get_vector_store
@@ -55,7 +57,38 @@ def create_session(db: Session, user: User, *, title: str | None = None) -> Chat
     db.add(session)
     db.commit()
     db.refresh(session)
+    # Keep the sidebar short: drop the user's oldest conversations past the cap.
+    prune_sessions(db, user)
     return session
+
+
+def prune_sessions(db: Session, user: User) -> int:
+    """Delete the user's oldest sessions beyond ``chat_session_limit``.
+
+    Keeps the most recently updated N conversations so the history list stays
+    readable. Deleting a session cascades to its messages AND its
+    :class:`SessionSummary`, so a pruned conversation is also forgotten by
+    cross-session memory. That is intentional: memory the user can no longer
+    see in the sidebar should not keep influencing answers.
+
+    Returns the number of sessions deleted.
+    """
+    limit = get_settings().chat_session_limit
+    stale = list(
+        db.scalars(
+            select(ChatSession)
+            .where(ChatSession.user_id == user.id)
+            .order_by(ChatSession.updated_at.desc())
+            .offset(limit)
+        )
+    )
+    if not stale:
+        return 0
+    for session in stale:
+        db.delete(session)
+    db.commit()
+    logger.info("Pruned %d old chat session(s) for user=%s", len(stale), user.id)
+    return len(stale)
 
 
 def get_session(db: Session, user: User, session_id: UUID) -> ChatSession:
@@ -100,9 +133,18 @@ def _add_message(db: Session, session: ChatSession, role: ChatRole, content: str
 # ---------------------------------------------------------------------------
 
 
-def _format_context(ctx: ChatContext, memory: list[str]) -> str:
-    """Render facts + examples + prior-session memory into the <context> block."""
+def _format_context(
+    ctx: ChatContext,
+    memory: list[str],
+    analytics: str | None = None,
+) -> str:
+    """Render facts + examples + memory + live query results into <context>."""
     parts: list[str] = []
+
+    # Live query results go FIRST: when present they answer the question more
+    # precisely than the standing metrics, and the model should prefer them.
+    if analytics:
+        parts.append(analytics)
 
     if ctx.stats is not None:
         s = ctx.stats
@@ -157,6 +199,19 @@ def _history(db: Session, session: ChatSession) -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
+@dataclass
+class TurnResult:
+    """A streaming turn: the token iterator plus any analytics table it used.
+
+    The table is resolved before streaming begins (the query runs during
+    retrieval), so the route can emit it as an SSE frame ahead of the tokens.
+    """
+
+    tokens: Iterator[str]
+    table: AnalyticsTable | None = None
+    explanation: str = ""
+
+
 def stream_turn(
     db: Session,
     user: User,
@@ -166,12 +221,13 @@ def stream_turn(
     week: str | None = None,
     category: str | None = None,
     vector_store: VectorStore | None = None,
-) -> Iterator[str]:
+) -> TurnResult:
     """Persist the question, retrieve grounding, and stream the grounded answer.
 
-    Yields answer tokens. The complete assistant message is persisted after the
-    stream finishes. On LLM failure, yields a graceful fallback sentence and
-    persists that (never raises to the SSE layer).
+    Returns a :class:`TurnResult` whose ``tokens`` iterator yields the answer.
+    The complete assistant message is persisted after the stream finishes. On
+    LLM failure the iterator yields a graceful fallback sentence and persists
+    that (never raises to the SSE layer).
     """
     store = vector_store
     if store is None:
@@ -187,7 +243,16 @@ def stream_turn(
     memory = chat_memory.recall_summaries(
         db, user.id, question, exclude_session_id=session.id, vector_store=store
     )
-    system_context = _format_context(ctx, memory)
+
+    # Natural-language analytics: let the model write a read-only query when the
+    # question needs a real aggregation (period comparisons, filtered counts)
+    # that the standing metrics cannot answer. Never raises; on any failure the
+    # answer just falls back to the metrics above.
+    analytics = chat_analytics.run_analytics(db, user.id, question)
+    if analytics.error:
+        logger.info("Analytics unavailable for this turn: %s", analytics.error)
+
+    system_context = _format_context(ctx, memory, chat_analytics.format_for_prompt(analytics))
     history = _history(db, session)
 
     collected: list[str] = []
@@ -225,7 +290,11 @@ def stream_turn(
             answer = "".join(collected).strip() or "(no answer)"
             _add_message(db, session, ChatRole.ASSISTANT, answer)
 
-    return _generate()
+    return TurnResult(
+        tokens=_generate(),
+        table=analytics.as_table(),
+        explanation=analytics.explanation,
+    )
 
 
 # ---------------------------------------------------------------------------

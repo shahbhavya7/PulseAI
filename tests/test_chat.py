@@ -234,6 +234,51 @@ def test_chat_other_users_session_404(client: TestClient, as_user: Callable[[str
     assert client.get(f"/chat/sessions/{sid}").status_code == 404
 
 
+def test_sessions_are_capped_and_oldest_are_pruned(
+    client: TestClient, as_user: Callable[[str], str]
+) -> None:
+    """Creating sessions past the cap deletes the oldest, keeping the newest N."""
+    from app.core.config import get_settings
+
+    limit = get_settings().chat_session_limit
+    as_user(_new_user("Pruner"))
+
+    created = [
+        client.post("/chat/sessions", json={"title": f"s{i}"}).json()["id"]
+        for i in range(limit + 3)
+    ]
+
+    listed = client.get("/chat/sessions").json()
+    assert len(listed) == limit, f"expected {limit} sessions, got {len(listed)}"
+
+    # The survivors are the most recent ones; the earliest are gone for good.
+    surviving = {s["id"] for s in listed}
+    assert surviving == set(created[-limit:])
+    for gone in created[:-limit]:
+        assert client.get(f"/chat/sessions/{gone}").status_code == 404
+
+
+def test_pruning_is_per_user(client: TestClient, as_user: Callable[[str], str]) -> None:
+    """One user hitting the cap must never delete another user's conversations."""
+    from app.core.config import get_settings
+
+    limit = get_settings().chat_session_limit
+
+    keeper = _new_user("Keeper")
+    as_user(keeper)
+    keeper_sid = client.post("/chat/sessions", json={"title": "keep me"}).json()["id"]
+
+    # A second user churns well past the cap.
+    as_user(_new_user("Churner"))
+    for i in range(limit + 3):
+        client.post("/chat/sessions", json={"title": f"c{i}"})
+
+    # The first user's session survives untouched.
+    as_user(keeper)
+    assert client.get(f"/chat/sessions/{keeper_sid}").status_code == 200
+    assert [s["id"] for s in client.get("/chat/sessions").json()] == [keeper_sid]
+
+
 def _sse_tokens(body: str) -> list[str]:
     tokens: list[str] = []
     for line in body.splitlines():

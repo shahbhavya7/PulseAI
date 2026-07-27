@@ -16,6 +16,7 @@ import {
   listSessions,
   streamMessage,
 } from "@/lib/api";
+import type { AnalyticsTable } from "@/lib/api";
 import type { ChatMessageOut, ChatSessionOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/Card";
@@ -26,6 +27,10 @@ interface UiMessage {
   role: "user" | "assistant";
   content: string;
   streaming?: boolean;
+  // Present when the answer was backed by a live analytics query, so the exact
+  // numbers are shown as a table alongside the prose.
+  table?: AnalyticsTable;
+  tableCaption?: string;
 }
 
 const SUGGESTIONS = [
@@ -83,9 +88,11 @@ export default function ChatPage() {
     setError(null);
     try {
       const s = await createSession();
-      setSessions((prev) => [s, ...prev]);
       setActiveId(s.id);
       setMessages([]);
+      // Re-read rather than prepending: creating a session prunes the oldest
+      // ones past the cap, so the server list is the only accurate one.
+      setSessions(await listSessions().catch(() => []));
     } catch (err) {
       if (err instanceof ApiError) setError(err);
     }
@@ -120,16 +127,34 @@ export default function ChatPage() {
       ]);
 
       try {
-        await streamMessage(sessionId, question, (token) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            const last = next[next.length - 1];
-            if (last?.role === "assistant") {
-              next[next.length - 1] = { ...last, content: last.content + token };
-            }
-            return next;
-          });
-        });
+        await streamMessage(
+          sessionId,
+          question,
+          (token) => {
+            setMessages((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { ...last, content: last.content + token };
+              }
+              return next;
+            });
+          },
+          {
+            // Arrives before the first token, so the table renders while the
+            // written answer is still streaming in beneath it.
+            onTable: (table, explanation) => {
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === "assistant") {
+                  next[next.length - 1] = { ...last, table, tableCaption: explanation };
+                }
+                return next;
+              });
+            },
+          },
+        );
       } catch (err) {
         setMessages((prev) => prev.slice(0, -1)); // drop the empty assistant bubble
         setError(
@@ -266,6 +291,7 @@ function Bubble({ message }: { message: UiMessage }) {
             : "border border-white/10 bg-white/[0.04] text-foreground",
         )}
       >
+        {message.table && <ResultTable table={message.table} caption={message.tableCaption} />}
         {message.content}
         {message.streaming && message.content === "" && (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
@@ -277,6 +303,112 @@ function Bubble({ message }: { message: UiMessage }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Render a jsonb cell as readable text rather than "[object Object]".
+ *
+ * Postgres json columns reach us as arrays (a themes list, or a json_agg of
+ * rows) or plain objects. We flatten to the values a reader actually wants:
+ * a list of strings joined by commas, and for objects the scalar fields only.
+ */
+function formatJsonCell(value: object): string {
+  if (Array.isArray(value)) {
+    const parts = value.map((v) =>
+      v !== null && typeof v === "object" ? formatJsonCell(v) : String(v),
+    );
+    return parts.filter(Boolean).join(", ") || "—";
+  }
+  // Prefer an obviously human-facing field when the object has one.
+  const record = value as Record<string, unknown>;
+  for (const key of ["title", "name", "label", "theme", "summary"]) {
+    if (typeof record[key] === "string") return record[key] as string;
+  }
+  const scalars = Object.entries(record)
+    .filter(([, v]) => v === null || typeof v !== "object")
+    .map(([k, v]) => `${k}: ${v === null ? "—" : String(v)}`);
+  return scalars.join(", ") || "—";
+}
+
+/**
+ * The exact numbers behind an answer, from a live query. Rendered above the
+ * prose so the figures are scannable and the assistant's sentence reads as
+ * commentary on a table the user can already see.
+ */
+function ResultTable({ table, caption }: { table: AnalyticsTable; caption?: string }) {
+  // Hide opaque identifier columns: a uuid is unreadable and crowds out the
+  // columns that actually answer the question. Kept only if that is all there is.
+  const isId = (c: string) => c.toLowerCase() === "id" || c.toLowerCase().endsWith("_id");
+  const visible = table.columns.some((c) => !isId(c))
+    ? table.columns.map((c, i) => i).filter((i) => !isId(table.columns[i]))
+    : table.columns.map((_, i) => i);
+
+  const format = (value: string | number | boolean | null) => {
+    if (value === null) return "—";
+    if (typeof value === "number") {
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+    if (typeof value === "boolean") return value ? "yes" : "no";
+    // A jsonb column (themes, or a json_agg of rows) arrives as an object or
+    // array. String() would render "[object Object]", so unwrap it into
+    // something readable instead.
+    if (typeof value === "object") return formatJsonCell(value);
+    const text = String(value);
+    // Long free text (a ticket title) is truncated so one cell cannot stretch
+    // the table; the full value stays in the answer prose.
+    return text.length > 90 ? `${text.slice(0, 88)}…` : text;
+  };
+
+  return (
+    <figure className="mb-3 space-y-1.5">
+      {/* Wide result sets scroll inside the bubble rather than stretching it. */}
+      <div className="overflow-x-auto rounded-lg border border-white/10 bg-black/20">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-white/10">
+              {visible.map((i) => (
+                <th
+                  key={table.columns[i]}
+                  className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground"
+                >
+                  {table.columns[i].replace(/_/g, " ")}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, r) => (
+              <tr key={r} className="border-b border-white/5 last:border-0">
+                {visible.map((i) => {
+                  const text = format(row[i]);
+                  // Free text wraps; short scalars stay on one line and use
+                  // tabular figures so columns of numbers line up.
+                  const isText = typeof row[i] === "string" && text.length > 24;
+                  return (
+                    <td
+                      key={i}
+                      className={cn(
+                        "px-3 py-1.5 align-top",
+                        isText ? "min-w-[16rem] whitespace-normal" : "whitespace-nowrap tabular-nums",
+                      )}
+                    >
+                      {text}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(caption || table.truncated) && (
+        <figcaption className="text-[11px] leading-snug text-muted-foreground">
+          {caption}
+          {table.truncated && " (showing the first rows only)"}
+        </figcaption>
+      )}
+    </figure>
   );
 }
 

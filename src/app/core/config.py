@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # A session with no new message for this long is "idle" and eligible for the
     # summary sweep.
     chat_idle_minutes: int = 30
+    # How many conversations to keep per user. Older ones are deleted when a new
+    # session starts, which also removes their messages and memory summaries.
+    chat_session_limit: int = 5
 
     # ---- Phase 5: auth (Google / Apple OIDC) ----
     # Signs the session JWT stored in the httpOnly cookie. MUST be set in any

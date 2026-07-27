@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Start the full PulseAI dev stack: FastAPI backend + Next.js frontend together.
 #
-# Runs both in the foreground and shuts both down cleanly on Ctrl-C. The backend
-# is served with uvicorn --reload; the frontend with `npm run dev`. Infra
-# (Postgres + Redis) is assumed to be up already — start it with:
-#   docker compose up -d
+# Brings up Postgres + Redis (via Docker Compose), waits for them to be
+# healthy, runs pending migrations, then runs both apps in the foreground and
+# shuts both down cleanly on Ctrl-C. The backend is served with
+# uvicorn --reload; the frontend with `npm run dev`.
 #
 # Usage:
 #   ./scripts/start-dev.sh                 # backend :8000 + frontend :3000
 #   BACKEND_PORT=8001 FRONTEND_PORT=3001 ./scripts/start-dev.sh
 #   ./scripts/start-dev.sh --backend-only  # just the API
 #   ./scripts/start-dev.sh --frontend-only # just the dashboard
+#   ./scripts/start-dev.sh --no-infra      # skip Docker/migrations (infra already up)
 
 set -euo pipefail
 
@@ -27,12 +28,40 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 
 RUN_BACKEND=true
 RUN_FRONTEND=true
+RUN_INFRA=true
 case "${1:-}" in
   --backend-only) RUN_FRONTEND=false ;;
   --frontend-only) RUN_BACKEND=false ;;
+  --no-infra) RUN_INFRA=false ;;
   "") ;;
   *) echo "unknown option: $1" >&2; exit 2 ;;
 esac
+
+# --- Infra: Postgres + Redis, then migrations --------------------------------
+# Skipped for --frontend-only (nothing backend needs a DB for) or --no-infra.
+if $RUN_INFRA && $RUN_BACKEND; then
+  echo "▶ infra    → starting Postgres + Redis (docker compose)"
+  docker compose up -d postgres redis
+
+  echo "⏳ waiting for Postgres + Redis to be healthy…"
+  for _ in $(seq 1 60); do
+    pg_status="$(docker inspect --format '{{.State.Health.Status}}' pulse-postgres 2>/dev/null || echo "starting")"
+    redis_status="$(docker inspect --format '{{.State.Health.Status}}' pulse-redis 2>/dev/null || echo "starting")"
+    if [[ "$pg_status" == "healthy" && "$redis_status" == "healthy" ]]; then
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$pg_status" != "healthy" || "$redis_status" != "healthy" ]]; then
+    echo "postgres/redis did not become healthy in time (postgres=$pg_status redis=$redis_status)" >&2
+    echo "check: docker compose logs postgres redis" >&2
+    exit 1
+  fi
+  echo "✅ Postgres + Redis are healthy"
+
+  echo "▶ migrations → alembic upgrade head"
+  alembic upgrade head
+fi
 
 pids=()
 

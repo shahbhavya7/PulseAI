@@ -276,16 +276,31 @@ export function endSession(id: string): Promise<void> {
   });
 }
 
+/** A result set from a live analytics query backing an answer. */
+export interface AnalyticsTable {
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
+  truncated: boolean;
+}
+
 /**
  * Send a message and stream the grounded answer. Calls `onToken` for each token
  * as it arrives (SSE), resolves when the stream closes. Rejects with ApiError on
  * a network/HTTP failure before the stream starts.
+ *
+ * When the answer is backed by a generated SQL query, `onTable` fires once with
+ * the result set before any token arrives, so the UI can show the numbers.
  */
 export async function streamMessage(
   sessionId: string,
   message: string,
   onToken: (token: string) => void,
-  opts?: { week?: string; category?: string; signal?: AbortSignal },
+  opts?: {
+    week?: string;
+    category?: string;
+    signal?: AbortSignal;
+    onTable?: (table: AnalyticsTable, explanation: string) => void;
+  },
 ): Promise<void> {
   const url = `${API_BASE_URL}/chat/sessions/${encodeURIComponent(sessionId)}/messages`;
   let res: Response;
@@ -327,7 +342,13 @@ export async function streamMessage(
         const raw = line.slice(5).trim();
         if (!raw || raw === "{}") continue;
         try {
-          const parsed = JSON.parse(raw) as { token?: string; error?: string };
+          const parsed = JSON.parse(raw) as {
+            token?: string;
+            error?: string;
+            table?: AnalyticsTable;
+            explanation?: string;
+          };
+          if (parsed.table) opts?.onTable?.(parsed.table, parsed.explanation ?? "");
           if (parsed.token) onToken(parsed.token);
         } catch {
           // Ignore malformed keep-alive lines.
