@@ -9,7 +9,6 @@ import {
   FileText,
   Flame,
   Layers,
-  LineChart,
   Sparkles,
   Tags,
   TrendingUp,
@@ -31,10 +30,18 @@ import { LoadingCard, ErrorState, EmptyState } from "@/components/States";
 import { MotionItem, MotionStagger, PageTransition } from "@/components/motion";
 import {
   CategoryChart,
-  SentimentTrendChart,
   ThemesChart,
   UrgencyChart,
+  WeekComparisonChart,
 } from "@/components/charts";
+import { cn } from "@/lib/utils";
+
+/** Ranges offered by the week-comparison chart. */
+const WEEK_RANGES = [
+  { label: "2 weeks", value: 2 },
+  { label: "3 weeks", value: 3 },
+  { label: "All", value: "all" },
+] as const satisfies ReadonlyArray<{ label: string; value: number | "all" }>;
 
 export default function OverviewPage() {
   const [week, setWeek] = useState<string>(currentIsoWeek());
@@ -122,6 +129,8 @@ function StatsView({
   week: string;
 }) {
   const router = useRouter();
+  // Independent of the week filter: this chart always compares across weeks.
+  const [weekRange, setWeekRange] = useState<number | "all">(2);
 
   if (data.total_issues === 0) {
     return (
@@ -229,15 +238,36 @@ function StatsView({
       </div>
 
       <Card
-        icon={<LineChart />}
-        title="Sentiment over time"
-        hint="Average customer sentiment (−1 negative to +1 positive) and urgency, week by week."
+        icon={<BarChart3 />}
+        title="Week-over-week comparison"
+        hint="Issue volume per week, split by severity. Compare the last few weeks or the full history."
+        right={
+          data.weekly_severity.length > 1 ? (
+            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] p-0.5">
+              {WEEK_RANGES.map((r) => (
+                <button
+                  key={String(r.value)}
+                  type="button"
+                  onClick={() => setWeekRange(r.value)}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-xs transition-colors",
+                    weekRange === r.value
+                      ? "bg-primary/20 font-medium text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          ) : undefined
+        }
       >
-        {data.sentiment_over_time.length > 0 ? (
-          <SentimentTrendChart data={data.sentiment_over_time} />
+        {data.weekly_severity.length > 0 ? (
+          <WeekComparisonChart data={data.weekly_severity} range={weekRange} />
         ) : (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            Not enough data yet for a trend.
+            No weekly data yet.
           </p>
         )}
       </Card>

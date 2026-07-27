@@ -8,6 +8,7 @@ the aggregation in :mod:`app.services.insights`.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 from uuid import UUID
 
@@ -17,7 +18,12 @@ from sqlalchemy.sql.selectable import Select
 
 from app.models.issue import Issue
 from app.models.ticket import Ticket
-from app.schemas.stats import SentimentPoint, StatsFilters, StatsResponse
+from app.schemas.stats import (
+    SentimentPoint,
+    StatsFilters,
+    StatsResponse,
+    WeekSeverityPoint,
+)
 from app.services.insights import aggregate_themes
 from app.services.vector_store import VectorStore
 
@@ -95,6 +101,36 @@ def compute_stats(
         for wk, s, u, n in trend_rows
     ]
 
+    # Week-over-week severity split. The `week` filter is intentionally omitted
+    # (the other filters still apply): comparing weeks requires every week, and
+    # scoping to one would leave the comparison chart with a single bar.
+    severity_rows = db.execute(
+        _base_filters(
+            select(Issue.week, Issue.severity, func.count(Issue.id)),
+            user_id,
+            week=None,
+            min_confidence=min_confidence,
+            needs_manual_review=needs_manual_review,
+        )
+        .group_by(Issue.week, Issue.severity)
+        .order_by(Issue.week)
+    ).all()
+
+    by_week: dict[str, dict[str, int]] = defaultdict(dict)
+    for wk, sev, n in severity_rows:
+        by_week[str(wk)][str(sev)] = int(n)
+    weekly_severity = [
+        WeekSeverityPoint(
+            week=wk,
+            low=buckets.get("low", 0),
+            medium=buckets.get("medium", 0),
+            high=buckets.get("high", 0),
+            critical=buckets.get("critical", 0),
+            total=sum(buckets.values()),
+        )
+        for wk, buckets in sorted(by_week.items())
+    ]
+
     top_themes = aggregate_themes(db, user_id, week=week, limit=10, vector_store=vector_store)
 
     return StatsResponse(
@@ -108,4 +144,5 @@ def compute_stats(
         urgency_counts=urgency_counts,
         sentiment_over_time=sentiment_over_time,
         top_themes=top_themes,
+        weekly_severity=weekly_severity,
     )

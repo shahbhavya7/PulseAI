@@ -1,21 +1,18 @@
 "use client";
 
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
   LabelList,
-  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import type { SentimentPoint, ThemeCount } from "@/lib/types";
-import { humanize, sentimentWord } from "@/lib/format";
+import type { ThemeCount, WeekSeverityPoint } from "@/lib/types";
+import { humanize } from "@/lib/format";
 
 const AXIS = "#8891a5";
 const GRID = "rgba(255,255,255,0.07)";
@@ -168,64 +165,148 @@ export function UrgencyChart({
   );
 }
 
-/** Sentiment over time — avg sentiment (-1..1) per week, drawn as a glowing line
- *  over a soft area, with urgency as a second line. */
-export function SentimentTrendChart({ data }: { data: SentimentPoint[] }) {
-  const rows = data.map((p) => ({
-    week: p.week,
-    Sentiment: Number(p.avg_sentiment.toFixed(2)),
-    Urgency: Number(p.avg_urgency.toFixed(2)),
-  }));
+const SEVERITIES = ["critical", "high", "medium", "low"] as const;
+
+/** Tooltip for the week comparison: every severity bucket plus the total, and
+ *  how that total moved against the week before. */
+function WeekCompareTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: Record<string, number & string> }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload as unknown as {
+    total: number;
+    delta: number | null;
+  } & Record<string, number>;
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: -16 }}>
-        <defs>
-          <linearGradient id="sentFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={CYAN} stopOpacity={0.35} />
-            <stop offset="100%" stopColor={CYAN} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="week" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <YAxis domain={[-1, 1]} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
-        <Tooltip
-          contentStyle={tooltipStyle}
-          formatter={(value: number, name: string) =>
-            name === "Sentiment"
-              ? [`${value} (${sentimentWord(value)})`, name]
-              : [value, "Urgency (0 to 1)"]
-          }
-        />
-        <Area
-          type="monotone"
-          dataKey="Sentiment"
-          stroke="none"
-          fill="url(#sentFill)"
-          isAnimationActive
-          animationDuration={1100}
-        />
-        <Line
-          type="monotone"
-          dataKey="Sentiment"
-          stroke={CYAN}
-          strokeWidth={2.5}
-          dot={{ r: 3, fill: CYAN }}
-          activeDot={{ r: 5 }}
-          isAnimationActive
-          animationDuration={1100}
-        />
-        <Line
-          type="monotone"
-          dataKey="Urgency"
-          stroke={color("high")}
-          strokeWidth={2.5}
-          dot={{ r: 3 }}
-          isAnimationActive
-          animationDuration={1100}
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div style={tooltipStyle}>
+      <div style={{ fontWeight: 600 }}>{label}</div>
+      {SEVERITIES.map((sev) =>
+        row[sev] ? (
+          <div key={sev} style={{ color: "#c4ccda", display: "flex", gap: 8 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: color(sev),
+                alignSelf: "center",
+              }}
+            />
+            {humanize(sev)}: {row[sev]}
+          </div>
+        ) : null,
+      )}
+      <div
+        style={{
+          marginTop: 6,
+          paddingTop: 6,
+          borderTop: "1px solid rgba(255,255,255,0.12)",
+          fontWeight: 600,
+        }}
+      >
+        Total: {row.total}
+        {row.delta != null && (
+          <span
+            style={{
+              marginLeft: 8,
+              fontWeight: 500,
+              color: row.delta > 0 ? "#ff8080" : row.delta < 0 ? "#5fe3a1" : "#7e8aa0",
+            }}
+          >
+            {row.delta > 0 ? "+" : ""}
+            {row.delta} vs prev week
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Week-over-week comparison — one stacked bar per ISO week, split by severity.
+ *
+ * Stacked rather than grouped because the question is usually "did the total
+ * move, and what is it made of": a stack answers both at a glance, where
+ * side-by-side bars make the total hard to read. `range` trims to the most
+ * recent N weeks so the last two or three can be compared without noise.
+ */
+export function WeekComparisonChart({
+  data,
+  range,
+}: {
+  data: WeekSeverityPoint[];
+  range: number | "all";
+}) {
+  // Data arrives oldest-first; take the most recent slice, keeping that order.
+  const start = range === "all" ? 0 : Math.max(0, data.length - range);
+  const rows = data.slice(start).map((p, i) => {
+    // Compare against the preceding week in the FULL series, so the first
+    // visible bar still shows a delta when earlier history exists.
+    const prev = data[start + i - 1];
+    return { ...p, delta: prev ? p.total - prev.total : null };
+  });
+
+  return (
+    <div>
+      {/* A legend, because a stack is unreadable without one. Static rather than
+          Recharts' <Legend/> so it sits above the plot at a fixed size. */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {SEVERITIES.map((sev) => (
+          <span key={sev} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span
+              className="size-2.5 rounded-[3px]"
+              style={{ background: color(sev) }}
+              aria-hidden
+            />
+            {humanize(sev)}
+          </span>
+        ))}
+      </div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart
+          data={rows}
+          margin={{ top: 20, right: 8, bottom: 0, left: -16 }}
+          barCategoryGap="35%"
+        >
+          <CartesianGrid stroke={GRID} vertical={false} />
+          <XAxis dataKey="week" tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
+          <YAxis allowDecimals={false} tick={{ fill: AXIS, fontSize: 12 }} tickLine={false} />
+          <Tooltip cursor={{ fill: "#ffffff0d" }} content={<WeekCompareTooltip />} />
+          {/* Stack order is low→critical so the most severe sits on top. */}
+          {[...SEVERITIES].reverse().map((sev, i, arr) => (
+            <Bar
+              key={sev}
+              dataKey={sev}
+              stackId="severity"
+              name={humanize(sev)}
+              fill={color(sev)}
+              // Without a cap, two weeks stretch into slabs half the card wide.
+              // A fixed max keeps the bars readable at any range; `barGap` has
+              // no effect on a stack, so spacing comes from the category width.
+              maxBarSize={64}
+              // Only the topmost segment gets rounded corners.
+              radius={i === arr.length - 1 ? [6, 6, 0, 0] : undefined}
+              {...BAR_ANIM}
+            >
+              {i === arr.length - 1 && (
+                <LabelList
+                  dataKey="total"
+                  position="top"
+                  style={{ fill: AXIS, fontSize: 11 }}
+                />
+              )}
+            </Bar>
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 

@@ -59,6 +59,16 @@ export interface SentimentPoint {
   issue_count: number;
 }
 
+/** Issue counts split by severity for one ISO week (week-comparison chart). */
+export interface WeekSeverityPoint {
+  week: string;
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+  total: number;
+}
+
 export interface ThemeCount {
   theme: string;
   count: number;
@@ -78,6 +88,7 @@ export interface StatsResponse {
   urgency_counts: Record<string, number>;
   sentiment_over_time: SentimentPoint[];
   top_themes: ThemeCount[];
+  weekly_severity: WeekSeverityPoint[];
 }
 
 // ---- Weekly summary (GET/POST /summaries/{week}) ---------------------------

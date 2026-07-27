@@ -136,6 +136,38 @@ def test_upload_to_summary_to_stats(
     assert stats["sentiment_over_time"][0]["issue_count"] == 2
 
 
+def test_weekly_severity_ignores_the_week_filter(
+    client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The comparison series must span all weeks even when a week is selected.
+
+    Narrowing it to the filtered week would leave the week-over-week chart with
+    a single bar and nothing to compare against.
+    """
+    monkeypatch.setattr(llm, "analyze_ticket_text", _two_issues)
+    monkeypatch.setattr(pipeline, "get_vector_store", _FakeStore)
+
+    as_user(_new_user())
+    _analyze_ticket(client, f"crash and double charge {uuid4().hex}")
+    week = iso_week()
+
+    stats = client.get(f"/stats?week={week}").json()
+
+    # The filtered aggregate narrows to the selected week …
+    assert stats["total_issues"] == 2
+    # … but the comparison series still reports that week in full.
+    series = stats["weekly_severity"]
+    assert len(series) >= 1
+    point = next(p for p in series if p["week"] == week)
+    assert point["total"] == 2
+    # Severity buckets are explicit fields: an absent bucket is 0, never missing.
+    assert point["high"] == 1
+    assert point["critical"] == 1
+    assert point["low"] == 0
+    assert point["medium"] == 0
+    assert point["total"] == point["low"] + point["medium"] + point["high"] + point["critical"]
+
+
 def test_stats_filter_needs_manual_review(
     client: TestClient, as_user: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
