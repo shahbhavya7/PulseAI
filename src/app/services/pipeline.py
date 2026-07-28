@@ -47,6 +47,7 @@ from app.services.cleaning import (
 )
 from app.services.ingestion import iso_week
 from app.services.llm import LLMError
+from app.services.stats_cache import invalidate_user_stats
 from app.services.validation import classify_content
 from app.services.vector_store import VectorStore, get_vector_store
 
@@ -258,6 +259,9 @@ def analyze_and_persist(
     _embed_issues(vector_store or get_vector_store(), created)
 
     db.commit()
+    # The dashboard aggregates just changed; drop the user's cached Overview so
+    # the next read recomputes. Best-effort — a failed purge never fails the write.
+    invalidate_user_stats(str(ticket.owner_id))
     logger.info(
         "Analyzed ticket %s (%s): %d issue(s)",
         ticket.id,

@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "minimal"
     # Cache TTL for AI results keyed by content_hash (7 days).
     ai_cache_ttl_seconds: int = 604800
+    # Dashboard stats cache. Correctness comes from explicit invalidation on
+    # every write, not from expiry: this TTL is only a backstop so a key leaked
+    # by a missed invalidation cannot go stale forever (1 hour).
+    stats_cache_ttl_seconds: int = 3600
     # Embedding model (Phase 3). 1536 dims matches app.models.issue.EMBEDDING_DIM.
     openai_embedding_model: str = "text-embedding-3-small"
     # Classify freshly-uploaded tickets automatically in the same request, so the

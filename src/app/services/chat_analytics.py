@@ -20,14 +20,20 @@ back to the standard metrics it already has.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
-from app.schemas.analytics import AnalyticsTable
+from app.schemas.analytics import (
+    AnalyticsChart,
+    AnalyticsTable,
+    ChartKind,
+    ChartPoint,
+    ChartSeries,
+)
 from app.services import llm
 from app.services.llm import LLMError
 from app.services.sql_guard import QueryResult, SQLGuardError, run_readonly_query
@@ -39,6 +45,11 @@ logger = get_logger(__name__)
 _MAX_PROMPT_ROWS = 25
 
 
+# Charts stay readable past this many slices/bars; a pie especially becomes
+# unreadable well before this, but even a bar chart is noise past a few dozen.
+_MAX_CHART_POINTS = 30
+
+
 @dataclass
 class AnalyticsOutcome:
     """Result of the analytics attempt for one question."""
@@ -47,6 +58,9 @@ class AnalyticsOutcome:
     sql: str | None = None
     explanation: str = ""
     result: QueryResult | None = None
+    chart_kind: ChartKind = ChartKind.NONE
+    chart_label_column: str = ""
+    chart_value_columns: list[str] = field(default_factory=list)
     # Set when we tried and could not produce an answer, for logging/telemetry.
     error: str | None = None
 
@@ -62,6 +76,61 @@ class AnalyticsOutcome:
             columns=self.result.columns,
             rows=self.result.rows,
             truncated=self.result.truncated,
+        )
+
+    def as_chart(self) -> AnalyticsChart | None:
+        """Build a chart spec from the result, or None if no chart applies.
+
+        Guards against the model naming a column it didn't actually select, or
+        a value column that isn't numeric — either just means no chart, never
+        an error surfaced to the user (the table still renders either way).
+        One :class:`ChartSeries` per requested value column, so comparing two
+        severities produces two series on one chart, not just the first.
+        """
+        if self.chart_kind is ChartKind.NONE or self.result is None or self.result.is_empty:
+            return None
+        cols = self.result.columns
+        # A pie is single-series by construction; extra columns are ignored
+        # rather than rejected, since the model may over-list out of caution.
+        value_columns = (
+            self.chart_value_columns[:1]
+            if self.chart_kind is ChartKind.PIE
+            else self.chart_value_columns
+        )
+
+        if self.chart_label_column not in cols or not value_columns:
+            logger.info(
+                "Chart label/value columns invalid (label=%s values=%s cols=%s); skipping chart",
+                self.chart_label_column,
+                value_columns,
+                cols,
+            )
+            return None
+        label_idx = cols.index(self.chart_label_column)
+
+        series: list[ChartSeries] = []
+        for value_col in value_columns:
+            if value_col not in cols:
+                logger.info("Chart value column %s not in result; skipping it", value_col)
+                continue
+            value_idx = cols.index(value_col)
+            points: list[ChartPoint] = []
+            for row in self.result.rows[:_MAX_CHART_POINTS]:
+                value = row[value_idx]
+                if not isinstance(value, int | float) or isinstance(value, bool):
+                    logger.info("Chart value column %s is not numeric; skipping it", value_col)
+                    points = []
+                    break
+                points.append(ChartPoint(label=str(row[label_idx]), value=float(value)))
+            if points:
+                series.append(ChartSeries(name=value_col, points=points))
+
+        if not series:
+            return None
+        return AnalyticsChart(
+            kind=self.chart_kind,
+            label_column=self.chart_label_column,
+            series=series,
         )
 
 
@@ -142,10 +211,11 @@ def run_analytics(
     Never raises. Any failure (model down, unsafe SQL, bad query) returns an
     outcome with ``error`` set and no data, so the caller just omits the block.
     """
-    week = current_iso_week(now)
+    moment = now or datetime.now(UTC)
+    week = current_iso_week(moment)
 
     try:
-        plan = llm.generate_analytics_sql(question, current_week=week)
+        plan = llm.generate_analytics_sql(question, current_week=week, now_iso=moment.isoformat())
     except LLMError as exc:
         logger.info("Analytics SQL generation unavailable: %s", exc)
         return AnalyticsOutcome(error=str(exc))
@@ -154,7 +224,7 @@ def run_analytics(
         return AnalyticsOutcome()
 
     try:
-        result = run_readonly_query(db, plan.sql, user_id)
+        result = run_readonly_query(db, plan.sql, user_id, now=moment)
     except SQLGuardError as exc:
         # A rejected query is a notable event: either the model drifted or
         # something tried to make it write. Logged with the offending SQL.
@@ -162,4 +232,11 @@ def run_analytics(
         return AnalyticsOutcome(explanation=plan.explanation, error=exc.reason)
 
     logger.info("Analytics query ran for user=%s rows=%d", user_id, len(result.rows))
-    return AnalyticsOutcome(sql=plan.sql, explanation=plan.explanation, result=result)
+    return AnalyticsOutcome(
+        sql=plan.sql,
+        explanation=plan.explanation,
+        result=result,
+        chart_kind=plan.chart,
+        chart_label_column=plan.chart_label_column,
+        chart_value_columns=plan.chart_value_columns,
+    )

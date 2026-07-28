@@ -460,6 +460,14 @@ explain your architecture. Example of the right length:
   uploaded."
 That is a complete answer. Adding more is worse, not more helpful.
 
+EXCEPTION - charts. If the context contains a LIVE QUERY RESULT and a chart was
+requested (pie chart, bar chart, line graph, "visualize", "graph this"), a chart
+HAS been generated and is already shown above your reply, exactly like the
+table. Never say you can't create charts/graphs/images when one is present -
+that is simply false in that turn. Describe it like any other live-query
+result (rule 3a): what it shows, not a restatement of every bar. Only refuse
+the chart request if there is genuinely no LIVE QUERY RESULT block at all.
+
 WHEN THE DATA DOES NOT COVER IT. One sentence saying it is outside what you can
 see, plus at most one concrete question you COULD answer from their actual
 metrics. Two sentences total. If asked what PulseAI does: it ingests tickets
@@ -641,12 +649,27 @@ When needs_query is true, the SQL MUST obey every rule:
    result with extra metrics nobody asked for. Add LIMIT 50 or less on anything
    that could return many rows.
 6. Give every computed column a clear lowercase alias (e.g. critical_count).
-7. For week comparisons use the `week` column and NOTHING else. It already
+7. For WEEK comparisons use the `week` column and NOTHING else. It already
    holds the ISO week as 'YYYY-Www', so comparing weeks is plain string
    equality. The current ISO week is given to you; derive earlier weeks by
    subtracting from its number (e.g. if current is '2026-W31', the previous is
-   '2026-W30'). NEVER write date arithmetic on created_at to find a week
+   '2026-W30'). NEVER write date arithmetic on created_at to find a WEEK
    boundary: it is error-prone and the week column makes it unnecessary.
+7a. For DAY-level ranges ("last 2 days", "last 3 days", "today vs yesterday")
+   there is no day column, so use created_at directly against the current
+   timestamp you are given:
+     i.created_at >= CAST(:now AS timestamptz) - interval '2 days'
+   Bucket by calendar day with date_trunc('day', i.created_at) when the
+   question wants one row per day, exactly the same periods-CTE pattern as
+   week comparisons (see example A) but with
+   generate_series(
+     CAST(:now AS timestamptz) - interval 'N days',
+     CAST(:now AS timestamptz),
+     interval '1 day'
+   )
+   in place of the week array. `:now` is a bind parameter, given to you as
+   the current instant - never write NOW() or CURRENT_DATE, since :now is
+   what keeps the query's "today" consistent with the week you were told.
 8. Prefer one query returning both periods over two queries, since only one
    query is run. A tall result (one row per week) is easier to read than a wide
    one, so prefer `GROUP BY week` over many current_/previous_ column pairs.
@@ -676,6 +699,26 @@ When needs_query is true, the SQL MUST obey every rule:
    created_at when the week column already answers the question. They are
    noise to a human reader. Select only columns a person would want to see:
    title, category, severity, week, and the aggregates you computed.
+15. CHART SELECTION. Pick `chart` based on what was actually asked, not on
+   habit:
+   - The user explicitly names a chart type ("pie chart", "bar chart", "line
+     graph") -> use exactly that one.
+   - Comparing a few named things side by side (severities across weeks,
+     category A vs category B, this period vs last) -> "bar".
+   - A composition / share-of-whole question ("breakdown of my categories",
+     "what proportion are critical") with one row per slice -> "pie". Keep
+     pie to a handful of slices (aim for <= 8); if the result would have many
+     rows, prefer "bar" instead.
+   - A trend across 3+ ordered time buckets (weeks or days) -> "line".
+   - A single number, a row-listing question (example C), or anything not
+     needs_query -> "none".
+   chart_label_column and every entry in chart_value_columns MUST be exact
+   column names your SELECT produces (post-alias). label is the
+   category/week/day column. chart_value_columns is a LIST: put every numeric
+   column the question is comparing in it, e.g. a question comparing critical
+   AND high issues across weeks needs BOTH count columns listed, so the chart
+   shows both series, not just one. A pie chart is always single-series: list
+   exactly one column even if the query computed more.
 
 Worked example A - the question NAMES periods to compare ("critical issues this
 week vs last week", current week '2026-W31'). Use the periods-CTE shape so a
@@ -740,6 +783,34 @@ If the question asks to list across TWO periods, keep it one query and include
 the week column so the rows are self-labelling:
   ... AND i.week IN ('2026-W31','2026-W30') ORDER BY i.week DESC, i.created_at DESC
 
+Worked example D - a DAY-level, MULTI-SERIES chart request ("bar chart
+comparing critical and high issues for the last 3 days"), :now given as
+'2026-07-27T10:00:00Z'. Two severities means two value columns, both listed:
+
+WITH days AS (
+  SELECT generate_series(
+    date_trunc('day', CAST(:now AS timestamptz)) - interval '2 days',
+    date_trunc('day', CAST(:now AS timestamptz)),
+    interval '1 day'
+  ) AS day
+)
+SELECT to_char(d.day, 'YYYY-MM-DD') AS day,
+       coalesce(count(i.id) FILTER (WHERE i.severity = 'critical'), 0) AS critical_count,
+       coalesce(count(i.id) FILTER (WHERE i.severity = 'high'), 0) AS high_count
+FROM days d
+LEFT JOIN tickets t ON t.owner_id = :user_id
+LEFT JOIN issues i ON i.ticket_id = t.id
+                  AND date_trunc('day', i.created_at) = d.day
+                  AND i.severity IN ('critical', 'high')
+GROUP BY d.day
+ORDER BY d.day
+-- chart: bar
+-- chart_label_column: day
+-- chart_value_columns: [critical_count, high_count]
+
+A single-series bar (just "critical issues per day", nothing to compare
+against) is the same shape with chart_value_columns holding one entry.
+
 explanation: one short sentence, plain language, saying what the query returns.
 No SQL jargon in it.
 """
@@ -749,6 +820,7 @@ def generate_analytics_sql(
     question: str,
     *,
     current_week: str,
+    now_iso: str,
     client: OpenAI | None = None,
 ) -> AnalyticsPlan:
     """Turn a question into a validated :class:`AnalyticsPlan` (may be no-query).
@@ -761,6 +833,9 @@ def generate_analytics_sql(
         question: The user's natural-language question.
         current_week: ISO week string ("YYYY-Www") so relative periods like
             "last week" resolve without the model guessing the date.
+        now_iso: The current instant (ISO 8601), bound as ``:now`` for
+            day-level ranges ("last 3 days") so the query's "today" is fixed
+            at the request, not re-evaluated with NOW() at execution.
         client: Optional injected client (tests pass a fake).
 
     Raises:
@@ -771,7 +846,9 @@ def generate_analytics_sql(
     client = client or get_openai_client()
 
     payload = (
-        f"<question>\n{question}\n</question>\n<current_iso_week>{current_week}</current_iso_week>"
+        f"<question>\n{question}\n</question>\n"
+        f"<current_iso_week>{current_week}</current_iso_week>\n"
+        f"<current_instant>{now_iso}</current_instant>"
     )
     try:
         response = client.responses.parse(

@@ -52,6 +52,7 @@ from app.services.cleaning import (
     redact_pii,
     strip_boilerplate,
 )
+from app.services.stats_cache import invalidate_user_stats
 from app.services.validation import (
     EmptyFileError,
     IngestionError,
@@ -560,6 +561,10 @@ class IngestionService:
                 )
             )
         self.db.commit()
+
+        # New issues exist (placeholders at minimum), so the cached Overview is
+        # stale even when auto-analyze is off and the pipeline never runs.
+        invalidate_user_stats(str(user.id))
 
         # Classify the freshly-created tickets in the same request so the
         # dashboard shows categorised data without a manual "Analyse" click.

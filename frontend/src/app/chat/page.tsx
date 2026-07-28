@@ -9,6 +9,21 @@ import {
   Sparkles,
 } from "lucide-react";
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   ApiError,
   createSession,
   endSession,
@@ -16,8 +31,9 @@ import {
   listSessions,
   streamMessage,
 } from "@/lib/api";
-import type { AnalyticsTable } from "@/lib/api";
+import type { AnalyticsCell, AnalyticsChart, AnalyticsTable } from "@/lib/api";
 import type { ChatMessageOut, ChatSessionOut } from "@/lib/types";
+import { humanize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/Card";
 import { ErrorState } from "@/components/States";
@@ -31,6 +47,7 @@ interface UiMessage {
   // numbers are shown as a table alongside the prose.
   table?: AnalyticsTable;
   tableCaption?: string;
+  chart?: AnalyticsChart;
 }
 
 const SUGGESTIONS = [
@@ -149,6 +166,16 @@ export default function ChatPage() {
                 const last = next[next.length - 1];
                 if (last?.role === "assistant") {
                   next[next.length - 1] = { ...last, table, tableCaption: explanation };
+                }
+                return next;
+              });
+            },
+            onChart: (chart) => {
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last?.role === "assistant") {
+                  next[next.length - 1] = { ...last, chart };
                 }
                 return next;
               });
@@ -292,6 +319,7 @@ function Bubble({ message }: { message: UiMessage }) {
         )}
       >
         {message.table && <ResultTable table={message.table} caption={message.tableCaption} />}
+        {message.chart && <ResultChart chart={message.chart} />}
         {message.content}
         {message.streaming && message.content === "" && (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
@@ -344,7 +372,7 @@ function ResultTable({ table, caption }: { table: AnalyticsTable; caption?: stri
     ? table.columns.map((c, i) => i).filter((i) => !isId(table.columns[i]))
     : table.columns.map((_, i) => i);
 
-  const format = (value: string | number | boolean | null) => {
+  const format = (value: AnalyticsCell) => {
     if (value === null) return "—";
     if (typeof value === "number") {
       return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -407,6 +435,129 @@ function ResultTable({ table, caption }: { table: AnalyticsTable; caption?: stri
           {caption}
           {table.truncated && " (showing the first rows only)"}
         </figcaption>
+      )}
+    </figure>
+  );
+}
+
+const CHART_COLORS = [
+  "#04f0f0",
+  "#ff7a90",
+  "#f6c85f",
+  "#7ee787",
+  "#9d8cff",
+  "#6cb6ff",
+  "#f090d9",
+  "#b6e880",
+];
+
+const chartTooltipStyle = {
+  background: "#f8fbff",
+  border: "1px solid rgba(4,240,240,0.55)",
+  borderRadius: 8,
+  color: "#0b1020",
+  fontSize: 12,
+  padding: "8px 10px",
+  boxShadow: "0 14px 36px rgba(0,0,0,0.45)",
+} as const;
+
+const chartTooltipLabelStyle = {
+  color: "#0b1020",
+  fontWeight: 700,
+} as const;
+
+const chartTooltipItemStyle = {
+  color: "#0b1020",
+  fontWeight: 600,
+} as const;
+
+function ResultChart({ chart }: { chart: AnalyticsChart }) {
+  const rows = chart.series[0]?.points.map((point, index) => {
+    const row: Record<string, string | number> = { label: point.label };
+    for (const series of chart.series) {
+      row[series.name] = series.points[index]?.value ?? 0;
+    }
+    return row;
+  }) ?? [];
+
+  if (!rows.length) return null;
+
+  const label = humanize(chart.label_column);
+
+  return (
+    <figure className="mb-3 rounded-lg border border-white/10 bg-black/20 px-2 py-3">
+      {chart.kind === "pie" ? (
+        <ResponsiveContainer width="100%" height={240}>
+          <PieChart>
+            <Tooltip
+              contentStyle={chartTooltipStyle}
+              labelStyle={chartTooltipLabelStyle}
+              itemStyle={chartTooltipItemStyle}
+            />
+            <Pie
+              data={chart.series[0].points}
+              dataKey="value"
+              nameKey="label"
+              innerRadius={44}
+              outerRadius={82}
+              paddingAngle={2}
+            >
+              {chart.series[0].points.map((point, index) => (
+                <Cell key={point.label} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+              ))}
+            </Pie>
+            <Legend formatter={(value) => humanize(String(value))} />
+          </PieChart>
+        </ResponsiveContainer>
+      ) : chart.kind === "line" ? (
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -12 }}>
+            <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#8891a5", fontSize: 12 }} tickLine={false} />
+            <YAxis allowDecimals={false} tick={{ fill: "#8891a5", fontSize: 12 }} tickLine={false} />
+            <Tooltip
+              contentStyle={chartTooltipStyle}
+              itemStyle={chartTooltipItemStyle}
+              labelFormatter={(value) => `${label}: ${value}`}
+              labelStyle={chartTooltipLabelStyle}
+            />
+            <Legend formatter={(value) => humanize(String(value))} />
+            {chart.series.map((series, index) => (
+              <Line
+                key={series.name}
+                type="monotone"
+                dataKey={series.name}
+                stroke={CHART_COLORS[index % CHART_COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 0, left: -12 }}>
+            <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+            <XAxis dataKey="label" tick={{ fill: "#8891a5", fontSize: 12 }} tickLine={false} />
+            <YAxis allowDecimals={false} tick={{ fill: "#8891a5", fontSize: 12 }} tickLine={false} />
+            <Tooltip
+              contentStyle={chartTooltipStyle}
+              itemStyle={chartTooltipItemStyle}
+              labelFormatter={(value) => `${label}: ${value}`}
+              labelStyle={chartTooltipLabelStyle}
+            />
+            <Legend formatter={(value) => humanize(String(value))} />
+            {chart.series.map((series, index) => (
+              <Bar
+                key={series.name}
+                dataKey={series.name}
+                fill={CHART_COLORS[index % CHART_COLORS.length]}
+                radius={[5, 5, 0, 0]}
+                maxBarSize={56}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
       )}
     </figure>
   );

@@ -29,7 +29,7 @@ from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.models.enums import ChatRole, ChatSessionStatus
 from app.models.user import User
-from app.schemas.analytics import AnalyticsTable
+from app.schemas.analytics import AnalyticsChart, AnalyticsTable
 from app.services import chat_analytics, chat_memory, llm
 from app.services.chat_retrieval import ChatContext, retrieve_context
 from app.services.llm import LLMError
@@ -209,6 +209,7 @@ class TurnResult:
 
     tokens: Iterator[str]
     table: AnalyticsTable | None = None
+    chart: AnalyticsChart | None = None
     explanation: str = ""
 
 
@@ -293,6 +294,7 @@ def stream_turn(
     return TurnResult(
         tokens=_generate(),
         table=analytics.as_table(),
+        chart=analytics.as_chart(),
         explanation=analytics.explanation,
     )
 

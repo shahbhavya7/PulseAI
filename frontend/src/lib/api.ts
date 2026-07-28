@@ -279,8 +279,32 @@ export function endSession(id: string): Promise<void> {
 /** A result set from a live analytics query backing an answer. */
 export interface AnalyticsTable {
   columns: string[];
-  rows: (string | number | boolean | null)[][];
+  rows: AnalyticsCell[][];
   truncated: boolean;
+}
+
+export type AnalyticsCell =
+  | string
+  | number
+  | boolean
+  | null
+  | Record<string, unknown>
+  | unknown[];
+
+export interface AnalyticsChartPoint {
+  label: string;
+  value: number;
+}
+
+export interface AnalyticsChartSeries {
+  name: string;
+  points: AnalyticsChartPoint[];
+}
+
+export interface AnalyticsChart {
+  kind: "bar" | "pie" | "line";
+  label_column: string;
+  series: AnalyticsChartSeries[];
 }
 
 /**
@@ -289,7 +313,8 @@ export interface AnalyticsTable {
  * a network/HTTP failure before the stream starts.
  *
  * When the answer is backed by a generated SQL query, `onTable` fires once with
- * the result set before any token arrives, so the UI can show the numbers.
+ * the result set before any token arrives, and `onChart` fires when the model
+ * chose a visual for that result.
  */
 export async function streamMessage(
   sessionId: string,
@@ -300,6 +325,7 @@ export async function streamMessage(
     category?: string;
     signal?: AbortSignal;
     onTable?: (table: AnalyticsTable, explanation: string) => void;
+    onChart?: (chart: AnalyticsChart) => void;
   },
 ): Promise<void> {
   const url = `${API_BASE_URL}/chat/sessions/${encodeURIComponent(sessionId)}/messages`;
@@ -346,9 +372,11 @@ export async function streamMessage(
             token?: string;
             error?: string;
             table?: AnalyticsTable;
+            chart?: AnalyticsChart;
             explanation?: string;
           };
           if (parsed.table) opts?.onTable?.(parsed.table, parsed.explanation ?? "");
+          if (parsed.chart) opts?.onChart?.(parsed.chart);
           if (parsed.token) onToken(parsed.token);
         } catch {
           // Ignore malformed keep-alive lines.

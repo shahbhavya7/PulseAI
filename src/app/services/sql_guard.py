@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -116,6 +117,9 @@ _FORBIDDEN_PATTERNS: tuple[str, ...] = (
 # The bind parameter the query must scope on. Passing the id as a bind (never
 # string-interpolated) also removes any chance of quoting/injection on our side.
 _USER_BIND = "user_id"
+# Always bound alongside :user_id for day-level ranges ("last 3 days"). Not
+# every query references it; an unused bind parameter is harmless in psycopg.
+_NOW_BIND = "now"
 
 _COMMENT_BLOCK = re.compile(r"/\*.*?\*/", re.DOTALL)
 _COMMENT_LINE = re.compile(r"--[^\n]*")
@@ -219,6 +223,7 @@ def run_readonly_query(
     sql: str,
     user_id: UUID,
     *,
+    now: datetime | None = None,
     max_rows: int = 50,
     timeout_ms: int = 5000,
 ) -> QueryResult:
@@ -228,6 +233,10 @@ def run_readonly_query(
         db: Session to borrow a connection from.
         sql: Untrusted, model-generated SQL.
         user_id: Bound to ``:user_id``; the query is required to filter on it.
+        now: Bound to ``:now`` for day-level ranges. Fixed at call time rather
+            than left to the query to call NOW() itself, so "the last 3 days"
+            means the same instant throughout one query even under REPEATABLE
+            READ. Queries that don't reference ``:now`` simply ignore it.
         max_rows: Hard cap on returned rows, so a runaway query cannot flood the
             prompt or the response.
         timeout_ms: Postgres-side statement timeout.
@@ -244,7 +253,8 @@ def run_readonly_query(
     try:
         db.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
         db.execute(text("SET TRANSACTION READ ONLY"))
-        result = db.execute(text(validated), {_USER_BIND: str(user_id)})
+        binds: dict[str, Any] = {_USER_BIND: str(user_id), _NOW_BIND: now or datetime.now()}
+        result = db.execute(text(validated), binds)
         columns = list(result.keys())
         fetched = result.fetchmany(max_rows + 1)
     except SQLGuardError:

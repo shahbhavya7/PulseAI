@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.api.deps import CurrentUser, DbSession
 from app.models.ticket import Ticket
 from app.schemas.ticket import TicketListResponse
+from app.services.stats_cache import invalidate_user_stats
 from app.services.tickets import list_tickets
 
 router = APIRouter(tags=["tickets"])
@@ -67,3 +68,5 @@ def delete_ticket(ticket_id: UUID, user: CurrentUser, db: DbSession) -> None:
         )
     db.delete(ticket)
     db.commit()
+    # Its issues went with it (DB cascade), so the cached Overview is now wrong.
+    invalidate_user_stats(str(user.id))

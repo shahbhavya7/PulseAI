@@ -100,8 +100,9 @@ def send_message(
     )
 
     def event_stream() -> Iterator[str]:
-        # A `table` frame first (when the answer is backed by a live query), then
-        # the answer tokens, then a final `done` event closes the stream.
+        # A `table` frame first (when the answer is backed by a live query),
+        # then a `chart` frame (when the model chose one), then the answer
+        # tokens, then a final `done` event closes the stream.
         try:
             if turn.table is not None:
                 table_frame = {
@@ -109,6 +110,9 @@ def send_message(
                     "explanation": turn.explanation,
                 }
                 yield f"data: {json.dumps(table_frame)}\n\n"
+            if turn.chart is not None:
+                chart_frame = {"chart": turn.chart.model_dump(mode="json")}
+                yield f"data: {json.dumps(chart_frame)}\n\n"
             for token in turn.tokens:
                 yield f"data: {json.dumps({'token': token})}\n\n"
         except Exception as exc:  # noqa: BLE001 — SSE must always close cleanly
