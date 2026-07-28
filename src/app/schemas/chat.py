@@ -7,16 +7,26 @@ from uuid import UUID
 
 from pydantic import Field
 
+from app.schemas.analytics import AnalyticsChart, AnalyticsTable
 from app.schemas.base import APIModel
 
 
 class ChatMessageOut(APIModel):
-    """One persisted message in a session."""
+    """One persisted message in a session.
+
+    ``table``/``chart``/``explanation`` are populated when this assistant turn
+    was backed by a generated analytics query — read back out of the message's
+    ``extra`` JSON column, so a session reload (GET .../messages) restores the
+    same table/chart the user saw live, not just the answer text.
+    """
 
     id: UUID
     role: str
     content: str
     created_at: datetime
+    table: AnalyticsTable | None = None
+    chart: AnalyticsChart | None = None
+    explanation: str | None = None
 
 
 class ChatSessionOut(APIModel):

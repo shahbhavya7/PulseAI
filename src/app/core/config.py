@@ -52,18 +52,28 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_prefix: str = "/api"
     project_name: str = "PulseAI"
-    # Browser origins allowed to call the API (the Next.js dev server by default).
-    # Override with PULSE_CORS_ORIGINS as a comma-separated list.
-    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
+    # Browser origins allowed to call the API (the Next.js dev server by
+    # default), as the RAW comma-separated string from PULSE_CORS_ORIGINS.
+    #
+    # Deliberately typed `str`, not `list[str]`: pydantic-settings treats any
+    # list/dict-typed field as "complex" and tries to JSON-decode the env var
+    # *inside its own source*, before any model/field validator ever runs. A
+    # plain comma-separated value like "http://a,http://b" is not valid JSON,
+    # so a `list[str]` field crashes the whole app on startup the instant this
+    # variable is set from a real environment or .env file (reproduced and
+    # confirmed directly against pydantic-settings, independent of Docker).
+    # Keeping this a `str` sidesteps that JSON-decode attempt entirely; the
+    # actual list is exposed below via `cors_origins`.
+    cors_origins_raw: str = Field(
+        default="http://localhost:3000,http://127.0.0.1:3000",
+        alias="cors_origins",
+    )
 
-    @model_validator(mode="before")
-    @classmethod
-    def _split_cors_origins(cls, data: dict[str, object]) -> dict[str, object]:
-        """Allow PULSE_CORS_ORIGINS to be a comma-separated string in the env."""
-        origins = data.get("cors_origins") if isinstance(data, dict) else None
-        if isinstance(origins, str):
-            data["cors_origins"] = [o.strip() for o in origins.split(",") if o.strip()]
-        return data
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cors_origins(self) -> list[str]:
+        """The parsed, comma-split list of allowed browser origins."""
+        return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
 
     # ---- Postgres ----
     # A full DSN wins if provided; otherwise it is assembled from the parts.

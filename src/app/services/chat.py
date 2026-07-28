@@ -118,8 +118,15 @@ def list_messages(db: Session, session: ChatSession) -> list[ChatMessage]:
     )
 
 
-def _add_message(db: Session, session: ChatSession, role: ChatRole, content: str) -> ChatMessage:
-    msg = ChatMessage(session_id=session.id, role=role, content=content)
+def _add_message(
+    db: Session,
+    session: ChatSession,
+    role: ChatRole,
+    content: str,
+    *,
+    extra: dict[str, object] | None = None,
+) -> ChatMessage:
+    msg = ChatMessage(session_id=session.id, role=role, content=content, extra=extra or {})
     db.add(msg)
     # Touch the session so idle detection + ordering stay current.
     session.updated_at = datetime.now(UTC)
@@ -256,6 +263,11 @@ def stream_turn(
     system_context = _format_context(ctx, memory, chat_analytics.format_for_prompt(analytics))
     history = _history(db, session)
 
+    # Resolved once, up front, so both the SSE frame (in the route) and the
+    # persisted message (in the `finally` below) use the exact same table/chart.
+    table = analytics.as_table()
+    chart = analytics.as_chart()
+
     collected: list[str] = []
 
     def _generate() -> Iterator[str]:
@@ -289,12 +301,22 @@ def stream_turn(
             yield fallback
         finally:
             answer = "".join(collected).strip() or "(no answer)"
-            _add_message(db, session, ChatRole.ASSISTANT, answer)
+            # Persist the table/chart alongside the answer text, not just in
+            # the SSE frame — otherwise reloading the session (GET .../messages)
+            # loses them, since only `content` would survive in chat_messages.
+            msg_extra: dict[str, object] = {}
+            if table is not None:
+                msg_extra["table"] = table.model_dump(mode="json")
+            if chart is not None:
+                msg_extra["chart"] = chart.model_dump(mode="json")
+            if analytics.explanation:
+                msg_extra["explanation"] = analytics.explanation
+            _add_message(db, session, ChatRole.ASSISTANT, answer, extra=msg_extra)
 
     return TurnResult(
         tokens=_generate(),
-        table=analytics.as_table(),
-        chart=analytics.as_chart(),
+        table=table,
+        chart=chart,
         explanation=analytics.explanation,
     )
 

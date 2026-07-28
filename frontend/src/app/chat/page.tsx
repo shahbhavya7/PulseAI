@@ -94,7 +94,16 @@ export default function ChatPage() {
       setMessages(
         detail.messages
           .filter((m: ChatMessageOut) => m.role !== "system")
-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+          .map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+            // Restore the table/chart the user saw live — without this a
+            // reload silently drops them, since only `content` was ever
+            // rendered here before.
+            table: m.table ?? undefined,
+            tableCaption: m.explanation ?? undefined,
+            chart: m.chart ?? undefined,
+          })),
       );
     } catch (err) {
       if (err instanceof ApiError) setError(err);

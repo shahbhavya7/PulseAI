@@ -1,0 +1,68 @@
+# Run PulseAI from the published image only — no local Dockerfile, no build
+# step, nothing to clone. Fetch this one file plus .env.example and go:
+#
+#   mkdir pulseai && cd pulseai
+#   curl -fsSL https://raw.githubusercontent.com/shahbhavya7/PulseAI/main/docker-compose.ghcr.yml -o docker-compose.yml
+#   curl -fsSL https://raw.githubusercontent.com/shahbhavya7/PulseAI/main/.env.example -o .env
+#   docker compose up
+#
+# This intentionally has NO `build:` key on the app service — unlike
+# docker-compose.yml (which builds locally by default and only pulls a
+# prebuilt image if PULSE_IMAGE is set), there is nothing here for Compose to
+# fall back to building if the image pull fails for any reason, so a missing
+# Dockerfile can never surface as the error instead of the real one.
+
+services:
+  app:
+    image: ghcr.io/shahbhavya7/pulseai:latest
+    container_name: pulse-app
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the DB/Redis are reachable by service name.
+      PULSE_POSTGRES_HOST: postgres
+      PULSE_POSTGRES_PORT: "5432"
+      PULSE_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${PULSE_FRONTEND_PORT:-3000}:3000"   # dashboard
+      - "${PULSE_API_PORT:-8000}:8000"        # API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: pulse-postgres
+    environment:
+      POSTGRES_USER: ${PULSE_POSTGRES_USER:-pulse}
+      POSTGRES_PASSWORD: ${PULSE_POSTGRES_PASSWORD:-pulse}
+      POSTGRES_DB: ${PULSE_POSTGRES_DB:-pulse}
+    ports:
+      - "${PULSE_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pulse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PULSE_POSTGRES_USER:-pulse} -d ${PULSE_POSTGRES_DB:-pulse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - pulse_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pulse_pgdata:
+  pulse_redisdata:

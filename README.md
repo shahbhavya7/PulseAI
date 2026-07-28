@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌊 PulseAI 
+# PulseAI
 
 **Turn a wall of customer tickets into a live dashboard — every message auto-classified into `category`, `severity`, `sentiment`, and `themes`, aggregated into weekly insight, and answerable in a grounded chat.**
 
@@ -172,26 +172,36 @@ mistake"* is **critical**; an angry rant about a typo is **low**.
 ## Run it with one command (no clone, no setup)
 
 The whole app — dashboard, API, and a boot that migrates the database itself —
-ships as a single image on GitHub Container Registry. With
-[Docker Desktop](https://www.docker.com/products/docker-desktop/) you don't need
-to clone anything or install Python or Node. You do need a running Postgres +
-Redis; the easiest path is the compose stack below, but to try just the app image
-against your own datastores:
+ships as a single image on GitHub Container Registry, so you don't need to
+install Python or Node. You **do** need Postgres + pgvector and Redis reachable
+from the app container — a bare `docker run` of the app image alone won't work,
+since it has nowhere to find a database. The one real "no clone" path is a
+small compose file, fetched with `curl`, that pulls the published image and
+starts Postgres + Redis alongside it:
 
 ```bash
-docker run --rm -p 3000:3000 -p 8000:8000 --env-file .env \
-  ghcr.io/shahbhavya7/pulseai:latest
+mkdir pulseai && cd pulseai
+curl -fsSL https://raw.githubusercontent.com/shahbhavya7/PulseAI/main/docker-compose.ghcr.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/shahbhavya7/PulseAI/main/.env.example -o .env
+# Open .env and paste your OpenAI key after PULSE_OPENAI_API_KEY= (optional — see below)
+docker compose up
 ```
 
 Then open **[http://localhost:3000](http://localhost:3000)** and sign in with the
 seeded dev account (below). The API docs are at
 **[http://localhost:8000/docs](http://localhost:8000/docs)**.
 
-> The two `-p` flags map the app's ports (dashboard `3000`, API `8000`) to your
-> machine. Keep them or your browser won't reach the app.
+**No key? Leave `PULSE_OPENAI_API_KEY` blank** — the app still boots;
+ingest/browse/auth work, and AI features return a clean 503 until a key is present.
 
-**For everything wired together** (app + Postgres + Redis in one go), use the
-compose quickstart — it's the recommended path and needs nothing but Docker.
+> `docker-compose.ghcr.yml` is identical to the repo's `docker-compose.yml`
+> except the `app` service points at `image: ghcr.io/shahbhavya7/pulseai:latest`
+> instead of building from a local `Dockerfile` — so there's genuinely nothing
+> to clone or build.
+
+**Prefer to clone the repo anyway** (to read the code, or build the image
+yourself)? Use the compose quickstart below instead — it's equally one-command
+and is the recommended path if you're already grabbing the source.
 
 ---
 
@@ -234,8 +244,8 @@ password: pulseai-dev
 
 | I want to… | Command | Notes |
 |---|---|---|
-| Build + run the full stack | `docker compose up` | Default. Migrations run automatically on boot. |
-| Skip the build (pull prebuilt) | `PULSE_IMAGE=ghcr.io/shahbhavya7/pulseai:latest docker compose up` | Pulls the image published by GitHub Actions — no local build. |
+| Build + run the full stack | `docker compose up` | Default. Builds from the local `Dockerfile`; migrations run automatically on boot. |
+| Skip the build (pull prebuilt, from a clone) | `docker compose -f docker-compose.ghcr.yml up` | Uses the published ghcr image directly — no local build, no `Dockerfile` fallback if the pull fails. |
 | Only the datastores (for local dev) | `docker compose up -d postgres redis` | Then run the app from source (below). |
 | Different host ports | `PULSE_FRONTEND_PORT=3100 PULSE_API_PORT=8100 docker compose up` | If `3000`/`8000` are taken. |
 
@@ -511,7 +521,7 @@ ruff check . && ruff format --check . && mypy && pytest
 | Command | What it does |
 |---|---|
 | `docker build -t pulseai .` | Build the single combined image (frontend + backend). |
-| `docker run --rm -p 3000:3000 -p 8000:8000 --env-file .env pulseai` | Run that image standalone (expects Postgres/Redis to be reachable). |
+| `docker run --rm -p 3000:3000 -p 8000:8000 --env-file .env pulseai` | Run that image standalone. Needs `PULSE_POSTGRES_HOST` / `PULSE_REDIS_URL` in `.env` pointed at a host the container can actually reach — `localhost` in `.env` means *inside the container*, not your machine. Use `host.docker.internal` (Docker Desktop) or a real hostname/IP, or just use `docker-compose.ghcr.yml` instead, which wires this up for you. |
 | `docker compose build --no-cache app` | Rebuild the app image from scratch, ignoring layer cache. |
 | `docker compose logs -f app` | Watch the container boot: waiting for Postgres → migrations → both servers. |
 | `docker exec -it pulse-app bash` | Shell into the running container to poke around. |

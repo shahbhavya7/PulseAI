@@ -15,6 +15,8 @@
  */
 
 import type {
+  AnalyticsChart,
+  AnalyticsTable,
   ChatSessionDetail,
   ChatSessionOut,
   CurrentUser,
@@ -276,36 +278,15 @@ export function endSession(id: string): Promise<void> {
   });
 }
 
-/** A result set from a live analytics query backing an answer. */
-export interface AnalyticsTable {
-  columns: string[];
-  rows: AnalyticsCell[][];
-  truncated: boolean;
-}
-
-export type AnalyticsCell =
-  | string
-  | number
-  | boolean
-  | null
-  | Record<string, unknown>
-  | unknown[];
-
-export interface AnalyticsChartPoint {
-  label: string;
-  value: number;
-}
-
-export interface AnalyticsChartSeries {
-  name: string;
-  points: AnalyticsChartPoint[];
-}
-
-export interface AnalyticsChart {
-  kind: "bar" | "pie" | "line";
-  label_column: string;
-  series: AnalyticsChartSeries[];
-}
+// AnalyticsTable / AnalyticsChart (+ their piece types) live in ./types, and
+// are re-exported here so existing `from "@/lib/api"` imports keep working.
+export type {
+  AnalyticsCell,
+  AnalyticsChart,
+  AnalyticsChartPoint,
+  AnalyticsChartSeries,
+  AnalyticsTable,
+} from "./types";
 
 /**
  * Send a message and stream the grounded answer. Calls `onToken` for each token

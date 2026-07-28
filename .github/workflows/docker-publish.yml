@@ -40,6 +40,9 @@ jobs:
             type=ref,event=tag
             type=sha,format=short
 
+      - name: Set up QEMU (cross-arch emulation for the arm64 build)
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -48,6 +51,11 @@ jobs:
         with:
           context: .
           push: true
+          # Both architectures: amd64 for typical cloud/CI hosts, arm64 for
+          # Apple Silicon Macs and ARM servers. Without this, Buildx defaults to
+          # the runner's own arch (amd64), and the image simply cannot run at
+          # all on an M-series Mac (`no matching manifest for linux/arm64/v8`).
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

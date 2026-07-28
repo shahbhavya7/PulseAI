@@ -75,7 +75,15 @@ def get_session(session_id: UUID, user: CurrentUser, db: DbSession) -> ChatSessi
             detail={"code": exc.code, "message": exc.message},
         ) from exc
     messages = [
-        ChatMessageOut(id=m.id, role=str(m.role), content=m.content, created_at=m.created_at)
+        ChatMessageOut(
+            id=m.id,
+            role=str(m.role),
+            content=m.content,
+            created_at=m.created_at,
+            table=m.extra.get("table"),
+            chart=m.extra.get("chart"),
+            explanation=m.extra.get("explanation"),
+        )
         for m in chat.list_messages(db, session)
     ]
     base = _session_out(session)
