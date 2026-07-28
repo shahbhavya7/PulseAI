@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌊 PulseAI
+# 🌊 PulseAI 
 
 **Turn a wall of customer tickets into a live dashboard — every message auto-classified into `category`, `severity`, `sentiment`, and `themes`, aggregated into weekly insight, and answerable in a grounded chat.**
 
@@ -28,32 +28,37 @@ your instructions" message, a Redis outage, or a database going down mid-request
 
 ---
 
-## ✨ At a glance
+## At a glance
 
 | | |
 |---|---|
-| 🧩 **The atomic unit** | An **Issue** — one ticket fans out into many issues, each independently categorized. Everything (charts, search, summaries) reasons at the issue level. |
-| 🏷️ **Taxonomy** | 5 categories · 4 severities · sentiment (−1…1) · reusable **themes** — all **enums**, so an off-taxonomy value is *impossible*. |
-| 🎯 **Blind accuracy** | Exact-match on a held-out labelled set the model never trained on: **100%** across all 5 categories, verified by `scripts/eval_accuracy.py`. |
-| 🛡️ **Reliability** | Every external call degrades gracefully — LLM/Redis/DB down never crashes a request. Full suite: **160+ tests green**. |
-| 🧠 **Grounded chat** | Hybrid retrieval — exact **SQL facts** + **pgvector** nearest issues — plus cross-session memory. Answers cite your real numbers, never hallucinate. |
-| 📊 **Live dashboard** | Next.js 15 · glassmorphism · click-a-chart-bar to filter · streaming chat · a weekly VP brief in scannable bullets. |
-| 🔒 **Security** | Secrets in `.env` only · ORM = no SQL injection · **PII redacted before storage** · prompt-injection resistant · per-user data isolation on every query. |
-| 🔑 **Auth** | Google/Apple **OIDC** *and* email/password · signed **httpOnly** session cookie. |
+| **The atomic unit** | An **Issue** — one ticket fans out into many issues, each independently categorized. Everything (charts, search, summaries) reasons at the issue level. |
+| **Taxonomy** | 5 categories · 4 severities · sentiment (−1…1) · reusable **themes** — all **enums**, so an off-taxonomy value is *impossible*. |
+| **Blind accuracy** | Exact-match on a held-out labelled set the model never trained on: **100%** across all 5 categories, verified by `scripts/eval_accuracy.py`. |
+| **Reliability** | Every external call degrades gracefully — LLM/Redis/DB down never crashes a request. Full suite: **200+ tests green**. |
+| **Grounded chat** | Hybrid retrieval — exact **SQL facts** + **pgvector** nearest issues — plus cross-session memory. Answers cite your real numbers, never hallucinate. |
+| **Chat asks the database** | Ask *"compare critical and high issues over the last 3 weeks"* and the model writes **guarded, read-only SQL**, then the answer streams back with a **bar/pie/line chart** built from the real result. |
+| **Cached dashboard** | The Overview is Redis-cached per user; flipping between weeks re-reads the cache, not Postgres. Any new/edited/deleted ticket invalidates it instantly, so it's never stale. |
+| **Live dashboard** | Next.js 15 · glassmorphism · click-a-chart-bar to filter · streaming chat · a week-over-week severity chart · a weekly VP brief in scannable bullets. |
+| **Security** | Secrets in `.env` only · ORM = no SQL injection · **PII redacted before storage** · prompt-injection resistant · per-user data isolation on every query · chat's generated SQL is sandboxed **read-only** with a table allowlist. |
+| **Auth** | Google/Apple **OIDC** *and* email/password · signed **httpOnly** session cookie. |
 
 ---
 
-## 🧱 What makes it production-shaped
+## What makes it production-shaped
 
 - **Enums as a hard contract.** The model can't return an off-taxonomy category — the Pydantic schema *is* the OpenAI output schema, so bad values are clamped or rejected, never written to the database.
-- **Junk never pollutes the data.** Greetings, gibberish, and off-topic personal messages ("my dog died yesterday") are discarded — twice: a cheap heuristic gate *before* the model, and the model's own `is_valid_ticket` judgement *after*. Genuine praise is kept as signal.
-- **Graceful degradation is a *feature*, not an afterthought.** No OpenAI key → the app still ingests, browses, and authenticates; AI calls return a clean **503**, never a 500. Redis down → the cache silently misses. DB down mid-request → a global handler returns **503 `database_unavailable`**, never a leaked stack trace.
+- **Junk never pollutes the data.** Greetings, gibberish, and off-topic personal messages ("my dog died yesterday") are discarded — twice: a cheap heuristic gate *before* the model, and the model's own `is_valid_ticket` judgement *after*. Genuine praise and positive feedback are explicitly kept as signal, never mistaken for noise.
+- **Graceful degradation is a *feature*, not an afterthought.** No OpenAI key → the app still ingests, browses, and authenticates; AI calls return a clean **503**, never a 500. Redis down → both the AI cache and the stats cache silently miss and recompute. DB down mid-request → a global handler returns **503 `database_unavailable`**, never a leaked stack trace.
 - **Themes that actually aggregate.** The classifier is steered toward a canonical vocabulary, and a synonym-folding + string-similarity merge combines "login failure" / "account access" / "sign-in problem" into one growing bar — so the dashboard shows real trends, not fragmented noise.
-- **Cross-session memory that's cheap and private.** On session end we embed a distilled *summary* of the chat (not the raw transcript) tagged by user, so the assistant remembers preferences across conversations without re-storing chit-chat.
+- **Cross-session memory that's cheap and private.** On session end we embed a distilled *summary* of the chat (not the raw transcript) tagged by user, so the assistant remembers preferences across conversations without re-storing chit-chat. Each user keeps their **5** most recent conversations; older ones (and their memory) are pruned automatically.
+- **Natural-language SQL, sandboxed.** Chat can turn a comparison question into a real query — but the generated SQL is untrusted by default: single-statement, `SELECT`-only, a table allowlist that makes `users` and chat transcripts unreachable, mandatory `owner_id` scoping, and execution inside a `READ ONLY` transaction that's always rolled back. Verified by feeding the guard hostile SQL directly (`DROP TABLE`, stacked statements, reads of the users table) — all rejected, data unchanged.
+- **No em dashes, anywhere.** Every LLM output path is post-processed to strip em/en dashes — a belt-and-suspenders prompt instruction *and* a deterministic regex pass, so the style rule holds even when the model ignores the prompt.
+- **Deletion is real, not soft.** Removing a ticket from the UI removes it (and its issues) from the database via cascade, and immediately invalidates that user's cached dashboard.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 One backend is the hub. The dashboard is a thin client; all the intelligence and
 every reliability guard lives in the services layer. Solid lines are the happy
@@ -61,38 +66,45 @@ path; dashed lines are failure branches that all converge on a safe result.
 
 ```mermaid
 flowchart TB
-    U["🖥️ Next.js dashboard"] -->|"HTTP + httpOnly cookie"| A["🚪 FastAPI · thin routes"]
-    A --> ING["📥 ingest · clean · redact PII · dedup"]
+    U["Next.js dashboard"] -->|"HTTP + httpOnly cookie"| A["FastAPI · thin routes"]
+    A --> ING["ingest · clean · redact PII · dedup"]
     ING --> J{"junk? (heuristic + model)"}
-    J -->|"greeting / gibberish / off-topic"| DISC["🗑️ discarded · never stored"]
-    J -->|"real ticket"| AI["🧠 classify (gpt-5-mini, strict schema)"]
-    AI --> ISS["🎫 Issue rows + 1536-d embedding"]
-    ISS --> DB[("🐘 Postgres + pgvector")]
-    ISS --> STATS["📊 stats · themes · weekly brief"]
-    ISS --> CHAT["💬 grounded chat (SQL facts + vector)"]
-
-    AI -. "LLM down / no key" .-> D503["⚠️ clean 503 · issue kept, re-embed later"]
-    A  -. "DB down mid-request" .-> DB503["⚠️ clean 503 · no stack trace"]
-
-    STATS --> U
+    J -->|"greeting / gibberish / off-topic"| DISC["discarded · never stored"]
+    J -->|"real ticket"| AI["classify (gpt-5-mini, strict schema)"]
+    AI --> ISS["Issue rows + 1536-d embedding"]
+    ISS --> DB[("Postgres + pgvector")]
+    ISS -->|"invalidate"| SCACHE["Redis stats cache"]
+    DB --> STATS["stats · themes · weekly brief"]
+    STATS --> SCACHE
+    SCACHE --> U
+    DB --> CHAT["grounded chat (SQL facts + vector + memory)"]
+    CHAT -->|"needs a real query?"| GEN["model writes SQL"]
+    GEN --> GUARD["sql_guard · allowlist · read-only txn"]
+    GUARD --> DB
+    GUARD --> CHART["bar / pie / line chart"]
+    CHART --> U
     CHAT --> U
+
+    AI -. "LLM down / no key" .-> D503["clean 503 · issue kept, re-embed later"]
+    A  -. "DB down mid-request" .-> DB503["clean 503 · no stack trace"]
+    GUARD -. "unsafe SQL" .-> REJ["rejected · logged · falls back to standing metrics"]
 
     classDef core fill:#0b2b2b,stroke:#04f0f0,stroke-width:2px,color:#fff;
     classDef fail fill:#3a2320,stroke:#E8845B,color:#fff;
-    class AI core;
-    class DISC,D503,DB503 fail;
+    class AI,GUARD core;
+    class DISC,D503,DB503,REJ fail;
 ```
 
 ### The AI pipeline (analyze one ticket)
 
 ```mermaid
 sequenceDiagram
-    participant U as 🖥️ Dashboard
-    participant A as 🚪 FastAPI
-    participant P as 🧠 pipeline
-    participant C as ⚡ Redis cache
-    participant M as 🤖 gpt-5-mini
-    participant D as 🐘 Postgres
+    participant U as Dashboard
+    participant A as FastAPI
+    participant P as pipeline
+    participant C as Redis cache
+    participant M as gpt-5-mini
+    participant D as Postgres
 
     U->>A: upload / paste / Analyse
     A->>P: analyze(text)
@@ -108,12 +120,33 @@ sequenceDiagram
     A-->>U: dashboard updates live
 ```
 
+### Chat asks the database (guarded natural-language SQL)
+
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant R as chat route
+    participant M as gpt-5-mini
+    participant G as sql_guard
+    participant D as Postgres
+
+    U->>R: "bar chart: critical vs high, last 3 weeks"
+    R->>M: does this need a real query? if so, write it + pick a chart
+    M-->>R: SQL (untrusted) + chart: bar + 2 value columns
+    R->>G: validate_sql()
+    Note over G: single statement · SELECT/WITH only<br/>table allowlist (issues, tickets only)<br/>must filter by :user_id
+    G->>D: SET TRANSACTION READ ONLY, execute
+    D-->>G: rows (transaction always rolled back)
+    G-->>R: rows, or rejected (logged, never executed)
+    R-->>U: table + chart frame, then the streamed answer
+```
+
 Every reliability guard and function-by-function flow is documented in the code
 itself (see `src/app/services/` — each module opens with a plain-language docstring).
 
 ---
 
-## 🏷️ The taxonomy
+## The taxonomy
 
 Every issue lands in one **category** and one **severity**, plus a sentiment
 score and reusable themes.
@@ -126,7 +159,7 @@ score and reusable themes.
 | `question` | How-to and usage questions |
 | `other` | Everything else that's still real feedback — including **praise** |
 
-**Severity** 🔴 critical · 🟠 high · 🟡 medium · 🟢 low is judged from the
+**Severity** critical · high · medium · low is judged from the
 **facts, not the tone**. A calm *"no rush, but my card was charged $4,250 by
 mistake"* is **critical**; an angry rant about a typo is **low**.
 
@@ -136,7 +169,7 @@ mistake"* is **critical**; an angry rant about a typo is **low**.
 
 ---
 
-## 🐳 Run it with one command (no clone, no setup)
+## Run it with one command (no clone, no setup)
 
 The whole app — dashboard, API, and a boot that migrates the database itself —
 ships as a single image on GitHub Container Registry. With
@@ -162,7 +195,7 @@ compose quickstart — it's the recommended path and needs nothing but Docker.
 
 ---
 
-## 🚀 Quickstart with Docker (easiest, recommended)
+## Quickstart with Docker (easiest, recommended)
 
 Never touched Python or a database? Use this. You install **one** thing (Docker),
 run **one** command, and it starts the database, Redis, the API, and the dashboard
@@ -211,7 +244,7 @@ password: pulseai-dev
 
 ---
 
-## 🐍 Quickstart (manual setup, no Docker for the app)
+## Quickstart (manual setup, no Docker for the app)
 
 Prefer to run the app from source with only the datastores in Docker?
 
@@ -242,12 +275,14 @@ Open **[http://localhost:3000](http://localhost:3000)** and sign in with
 
 ---
 
-## 🎯 Try it
+## Try it
 
 - **One ticket:** *Upload* → paste a message → **Add & classify**. It's cleaned, stored, and categorized in the same request.
 - **A batch:** *Upload* → drop a CSV → watch the summary (created / flagged / duplicates / **non-analyzable** discarded).
-- **See the trends:** *Overview* → category & urgency charts, sentiment-over-time, top themes, and a one-click **weekly summary** in bullets. Click any chart bar to jump to those tickets.
+- **See the trends:** *Overview* → category & urgency charts, top themes, a **week-over-week severity comparison**, and a one-click **weekly summary** in bullets. Click any chart bar to jump to those tickets. Flip between weeks — it's Redis-cached, so it's instant after the first load.
 - **Ask about your data:** *Chat* → *"What are my most common categories and how many critical issues do I have?"* → the answer **streams** and cites your exact numbers + a real ticket.
+- **Ask for a chart:** *Chat* → *"bar chart comparing critical and high issues over the last 3 weeks"* or *"pie chart of my categories"* or *"critical issues from the last 2 days"* → the model writes a **read-only, sandboxed** SQL query and the answer arrives with a real chart built from the result.
+- **Delete a ticket:** *Tickets* → remove one → it's gone from the database (cascade-deletes its issues) and the dashboard cache is invalidated immediately, not after a TTL.
 - **Prove it never breaks:**
   ```bash
   docker stop pulse-postgres     # /ready → 503, app doesn't crash
@@ -257,7 +292,7 @@ Open **[http://localhost:3000](http://localhost:3000)** and sign in with
 
 ---
 
-## 🧪 Edge cases it survives
+## Edge cases it survives
 
 Empty · whitespace · one-word · 20k-char walls · gibberish · non-English &
 mixed-language · **prompt injection** · off-topic personal messages · PII in the
@@ -273,20 +308,30 @@ the hardening tests in `tests/`. Highlight:
 > The prompt wraps every message in `<ticket>` tags marked *data, never
 > instructions*.
 
+Chat's SQL generation gets the same adversarial treatment — verified by feeding
+the guard hostile SQL directly, bypassing the prompt entirely:
+
+> **"Delete all my tickets", "DROP TABLE issues", "show me every user's
+> password_hash"** — all refused. `sql_guard` rejects on multiple independent
+> layers (statement shape, keyword denylist, table allowlist, mandatory user
+> scope), and even a validator bypass still hits Postgres's own
+> `READ ONLY` transaction. Issue count verified unchanged before and after.
+
 ---
 
-## 🔒 Security
+## Security
 
 - **No secrets in code** — the OpenAI key, DB URL, and session secrets live only in `.env` (git-ignored); `.env.example` ships placeholders.
 - **No SQL injection** — every query goes through the SQLAlchemy ORM (parameterized); no string-built SQL.
+- **Chat's generated SQL is sandboxed, not trusted** — the model may write a query, but it must pass `sql_guard`: single statement, `SELECT`/`WITH` only, a denylist on every write verb, a table allowlist (only `issues`/`tickets` — `users` and chat transcripts are unreachable), and a mandatory `:user_id` bind. Execution then runs inside `SET TRANSACTION READ ONLY`, always rolled back — Postgres itself refuses a write even if the text checks were somehow bypassed.
 - **PII redaction** — emails, card-like numbers (Luhn-checked), and phone-like numbers are masked *before* any text reaches the model or the database.
 - **Prompt-injection resistant** — the ticket is data, never a command.
-- **Per-user isolation** — every read, aggregate, and delete filters by `owner_id`; a user can never see or delete another user's data.
+- **Per-user isolation** — every read, aggregate, cache key, and delete filters by `owner_id`/`user_id`; a user can never see, cache-collide with, or delete another user's data.
 - **Session security** — auth is a signed **httpOnly** JWT cookie (JavaScript can't read it); passwords are bcrypt-hashed; login errors are uniform (no account enumeration).
 
 ---
 
-## 📁 Project structure
+## Project structure
 
 ```
 PulseAI/
@@ -295,34 +340,37 @@ PulseAI/
 │   ├── core/                    # config (.env), logging, redis client
 │   ├── db/                      # engine, session, get_db (pool_pre_ping)
 │   ├── models/                  # SQLAlchemy ORM — User · Ticket · Issue · summaries · chat
-│   ├── schemas/                 # ← Pydantic contracts (also the LLM's strict output schema)
+│   ├── schemas/                 # Pydantic contracts (also the LLM's strict output schema)
 │   ├── api/routes/              # thin endpoints: uploads · analyze · stats · summaries · tickets · auth · chat · health
-│   └── services/                # ← the brains
+│   └── services/                # the brains
 │       ├── ingestion.py         #   parse → clean → dedup → persist → auto-classify
 │       ├── validation.py        #   the junk / gibberish / greeting detector
 │       ├── cleaning.py          #   boilerplate strip · PII redaction · hashing
 │       ├── pipeline.py          #   analyze() + analyze_and_persist() (discard non-tickets)
-│       ├── llm.py               #   ← the graded prompts + structured OpenAI calls
+│       ├── llm.py               #   the graded prompts + structured OpenAI calls
 │       ├── vector_store.py      #   embeddings (text-embedding-3-small, 1536-d)
-│       ├── ai_cache.py          #   Redis cache (best-effort, never raises)
+│       ├── ai_cache.py          #   Redis cache for AI analysis (best-effort, never raises)
+│       ├── stats_cache.py       #   Redis cache for the Overview, invalidated on every write
 │       ├── insights.py          #   theme aggregation (synonym fold + similarity merge)
-│       ├── stats.py             #   dashboard aggregates (pure SQL)
+│       ├── stats.py             #   dashboard aggregates (pure SQL) + weekly severity series
 │       ├── summaries.py         #   weekly VP brief (bulleted)
-│       ├── chat.py              #   grounded streaming chat + idle sweep
+│       ├── chat.py              #   grounded streaming chat + session pruning + idle sweep
 │       ├── chat_retrieval.py    #   hybrid retrieval (SQL facts + pgvector)
 │       ├── chat_memory.py       #   cross-session memory (embed the summary)
+│       ├── chat_analytics.py    #   natural-language question → chart + table
+│       ├── sql_guard.py         #   the trust boundary: validates + runs generated SQL read-only
 │       └── auth.py / oauth.py   #   session JWTs · bcrypt · Google/Apple OIDC
 ├── frontend/                    # Next.js 15 dashboard (App Router, Tailwind, Recharts)
 ├── alembic/versions/            # migrations 0001 → 0006
 ├── scripts/                     # start-dev.sh · docker-entrypoint.sh · eval_accuracy.py
-├── tests/                       # unit · edge-case · integration (160+)
+├── tests/                       # unit · edge-case · integration (200+)
 ├── Dockerfile · docker-compose.yml
 └── .env.example                 # every variable the code reads, safe placeholders
 ```
 
 ---
 
-## 🔑 Authentication (Google / Apple sign-in)
+## Authentication (Google / Apple sign-in)
 
 Email sign-in is on by default, so you can use the app with **zero OAuth setup**
 (create an account at `/signin`, or use the seeded `dev@pulseai.local` /
@@ -347,19 +395,19 @@ set `PULSE_BACKEND_BASE_URL`, `PULSE_FRONTEND_BASE_URL`, and
 
 ---
 
-## 🧰 Command reference
+## Command reference
 
 Every command you need, grouped by what you're trying to do. Run them from the
 project root with your virtualenv active (`source .venv/bin/activate`).
 
-### 🗄️ Database & infrastructure
+### Database & infrastructure
 
 | Command | What it does |
 |---|---|
 | `docker compose up -d postgres redis` | **Start the datastores.** Postgres (with pgvector) on `:5432`, Redis on `:6379`. This is the one to run before working from source. |
 | `docker compose stop postgres redis` | Stop them, keeping the data. |
 | `docker compose down` | Stop and remove the containers. Data survives in named volumes. |
-| `docker compose down -v` | ⚠️ Stop **and wipe all data** — a clean slate. You'll need to re-run migrations. |
+| `docker compose down -v` | Stop **and wipe all data** — a clean slate. You'll need to re-run migrations. |
 | `docker compose logs -f postgres` | Tail the database logs (swap `postgres` for `redis` or `app`). |
 | `docker compose ps` | See which services are up and whether their healthchecks pass. |
 
@@ -376,10 +424,17 @@ Useful once you're in: `\dt` (list tables) · `\d tickets` (describe a table) ·
 
 ```bash
 docker exec -it pulse-redis redis-cli ping     # → PONG
-docker exec -it pulse-redis redis-cli FLUSHALL # clear the cache
+docker exec -it pulse-redis redis-cli FLUSHALL # clear every cache (AI + stats)
 ```
 
-### 🧬 Migrations (Alembic)
+**Inspect the dashboard stats cache** — one key per `(user, filters)` view, dropped automatically on any write:
+
+```bash
+docker exec -it pulse-redis redis-cli KEYS 'pulse:stats:*'   # see cached Overview views
+docker exec -it pulse-redis redis-cli DEL $(docker exec pulse-redis redis-cli KEYS 'pulse:stats:*')  # force a re-read
+```
+
+### Migrations (Alembic)
 
 The schema lives in `alembic/versions/`. Along the way the migrations enable the
 `pgvector` extension and seed the `dev@pulseai.local` account, so a single
@@ -397,7 +452,7 @@ The schema lives in `alembic/versions/`. Along the way the migrations enable the
 > Alembic reads `PULSE_DATABASE_URL` (or the `PULSE_POSTGRES_*` parts) from your
 > `.env`, so the datastores must be up before any of these will connect.
 
-### ▶️ Running the app
+### Running the app
 
 | Command | What it does |
 |---|---|
@@ -417,7 +472,7 @@ curl localhost:8000/ready     # readiness — can it reach Postgres + Redis?
 open http://localhost:8000/docs   # interactive OpenAPI explorer
 ```
 
-### ✅ Quality checks
+### Quality checks
 
 | Command | What it does |
 |---|---|
@@ -440,7 +495,7 @@ ruff check . && ruff format --check . && mypy && pytest
 > `pytest` needs Postgres up (`docker compose up -d postgres redis`) — the tests
 > exercise real SQL against a real database rather than mocking it.
 
-### 🔬 Evaluation & utilities
+### Evaluation & utilities
 
 | Command | What it does |
 |---|---|
@@ -451,7 +506,7 @@ ruff check . && ruff format --check . && mypy && pytest
 | `./scripts/clean-cache.sh --dry-run` | Show what *would* be deleted, without deleting. |
 | `python -c "import secrets; print(secrets.token_urlsafe(48))"` | Generate a JWT / OAuth state secret for `.env`. |
 
-### 🐳 Docker image
+### Docker image
 
 | Command | What it does |
 |---|---|
@@ -461,7 +516,7 @@ ruff check . && ruff format --check . && mypy && pytest
 | `docker compose logs -f app` | Watch the container boot: waiting for Postgres → migrations → both servers. |
 | `docker exec -it pulse-app bash` | Shell into the running container to poke around. |
 
-### 🆘 When something's wrong
+### When something's wrong
 
 | Symptom | Fix |
 |---|---|
@@ -478,3 +533,7 @@ ruff check . && ruff format --check . && mypy && pytest
 **Built in disciplined phases** · foundations → ingestion → AI pipeline → insights → dashboard → auth → chat → hardening
 
 </div>
+
+---
+
+*Last updated: July 2026*
